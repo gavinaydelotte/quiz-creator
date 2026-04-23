@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="QuizForge — create flashcard sets, study smart, and play games for any topic" />
+  <title>QuizForge</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+  <!-- ── Site Header / Nav ── -->
+  <header class="site-header" role="banner">
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="#/" class="navbar-logo" aria-label="QuizForge — go to home">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <span class="logo-text">QuizForge</span>
+      </a>
+
+      <ul class="nav-links" role="list">
+        <li><a href="#/"        class="nav-link" aria-current="page">Home</a></li>
+        <li><a href="#/library" class="nav-link">Library</a></li>
+        <li><a href="#/games"   class="nav-link">Games</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <button id="settings-btn" class="btn btn-ghost btn-icon" aria-label="Open API settings">⚙</button>
+        <a href="#/create" class="btn btn-primary btn-sm">+ Create Set</a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ── Live region for page-change announcements ── -->
+  <div id="page-announcer" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+  <!-- ── Main Content (pages rendered here) ── -->
+  <main id="app" role="main"></main>
+
+  <!-- ════════════════════════════════════════
+       ── Dialogs (always in DOM, shown on demand) ──
+       ════════════════════════════════════════ -->
+
+  <!-- AI Generator Dialog -->
+  <dialog id="ai-dialog" aria-labelledby="ai-dialog-title" aria-describedby="ai-dialog-desc">
+    <article class="dialog-inner">
+      <header class="dialog-header">
+        <h2 id="ai-dialog-title">✨ Generate with AI</h2>
+        <button type="button" id="ai-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">✕</button>
+      </header>
+
+      <div class="dialog-body">
+        <p id="ai-dialog-desc">
+          Describe any topic and Claude AI will generate flashcard pairs for you — academic or not.
+        </p>
+
+        <div class="field">
+          <label for="ai-topic">Topic or prompt</label>
+          <textarea
+            id="ai-topic"
+            class="input"
+            rows="3"
+            placeholder="e.g. The French Revolution, JavaScript async/await, types of pasta, 90s hip-hop albums…"
+            required
+            aria-required="true"
+          ></textarea>
+        </div>
+
+        <div class="field">
+          <label for="ai-count">Number of cards</label>
+          <input id="ai-count" type="number" class="input" min="3" max="20" value="8" />
+        </div>
+
+        <div id="ai-error" role="alert" class="ai-error" hidden></div>
+      </div>
+
+      <footer class="dialog-footer">
+        <button type="button" id="ai-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="ai-generate" class="btn btn-primary">✨ Generate</button>
+      </footer>
+    </article>
+  </dialog>
+
+  <!-- API Key Settings Dialog -->
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <article class="dialog-inner">
+      <header class="dialog-header">
+        <h2 id="settings-title">⚙ API Settings</h2>
+        <button type="button" id="settings-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">✕</button>
+      </header>
+
+      <div class="dialog-body">
+        <div class="field">
+          <label for="api-key-input">Anthropic API Key</label>
+          <input id="api-key-input" type="password" class="input" placeholder="sk-ant-…" autocomplete="off" />
+          <p class="field-hint">
+            Stored only in your browser's localStorage — never sent anywhere except Anthropic's API.
+            <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Get a key →</a>
+          </p>
+        </div>
+
+        <div role="note" class="api-warning">
+          <strong>Security note:</strong> Calling an API directly from a browser exposes your key to anyone
+          who inspects the page. Only use a key with a spend limit set for personal use.
+        </div>
+      </div>
+
+      <footer class="dialog-footer">
+        <button type="button" id="settings-cancel" class="btn btn-ghost">Cancel</button>
+        <button type="button" id="settings-save" class="btn btn-primary">Save Key</button>
+      </footer>
+    </article>
+  </dialog>
+
+  <!-- Confirm / Delete Dialog -->
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+    <article class="dialog-inner">
+      <header class="dialog-header">
+        <h2 id="confirm-title">Are you sure?</h2>
+      </header>
+      <div class="dialog-body">
+        <p id="confirm-msg"></p>
+      </div>
+      <footer class="dialog-footer">
+        <button id="confirm-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="confirm-ok"     class="btn btn-danger">Delete</button>
+      </footer>
+    </article>
+  </dialog>
+
+  <!-- ── Scripts (no build step, no modules) ── -->
+  <script src="js/storage.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
