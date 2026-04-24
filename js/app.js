@@ -119,9 +119,18 @@ function showConfirm(message, cb) {
 }
 
 function openAIDialog(cb) {
+  /* If no key is saved, open settings first with a prompt */
+  if (!AI.getKey()) {
+    document.getElementById('api-key-input').value = '';
+    document.getElementById('settings-dialog').showModal();
+    showToast('Add your Gemini API key first, then click Generate with AI again.');
+    return;
+  }
   _aiCallback = cb;
   document.getElementById('ai-error').hidden = true;
+  document.getElementById('ai-topic').value = '';
   document.getElementById('ai-dialog').showModal();
+  setTimeout(function () { document.getElementById('ai-topic').focus(); }, 50);
 }
 
 function initDialogs() {
@@ -153,24 +162,31 @@ function initDialogs() {
     var count = parseInt(document.getElementById('ai-count').value, 10) || 8;
     if (!topic) { document.getElementById('ai-topic').focus(); return; }
 
-    aiErrEl.hidden = true;
-    aiGenBtn.disabled   = true;
-    aiGenBtn.textContent = '⏳ Generating…';
+    function reset() {
+      aiGenBtn.disabled    = false;
+      aiGenBtn.textContent = 'Generate';
+    }
+
+    aiErrEl.hidden       = true;
+    aiGenBtn.disabled    = true;
+    aiGenBtn.textContent = 'Generating...';
 
     AI.generate(topic, count)
       .then(function (cards) {
+        reset();
+        if (!cards || cards.length === 0) {
+          aiErrEl.hidden      = false;
+          aiErrEl.textContent = 'No cards were returned. Try a more specific topic.';
+          return;
+        }
         aiDialog.close();
-        document.getElementById('ai-topic').value = '';
         if (typeof _aiCallback === 'function') _aiCallback(cards);
-        showToast('✨ ' + cards.length + ' cards generated!');
+        showToast(cards.length + ' cards generated');
       })
       .catch(function (err) {
+        reset();
         aiErrEl.hidden      = false;
-        aiErrEl.textContent = err.message;
-      })
-      .finally(function () {
-        aiGenBtn.disabled    = false;
-        aiGenBtn.textContent = '✨ Generate';
+        aiErrEl.textContent = err.message || 'Something went wrong. Check your API key and try again.';
       });
   });
 
@@ -188,15 +204,16 @@ function initDialogs() {
 ══════════════════════════════════════ */
 
 function updateNavActive() {
-  var hash = location.hash || '#/';
-  document.querySelectorAll('.nav-link').forEach(function (a) {
+  var hash  = location.hash || '#/';
+  var base  = '#/' + (hash.replace(/^#\/?/, '').split('/')[0] || '');
+
+  document.querySelectorAll('.nav-link, .mobile-nav-link').forEach(function (a) {
     var href = a.getAttribute('href');
-    a.classList.toggle('active', href === hash);
-    if (href === hash) {
-      a.setAttribute('aria-current', 'page');
-    } else {
-      a.removeAttribute('aria-current');
-    }
+    /* exact match for home, prefix match for everything else */
+    var active = href === '#/' ? hash === '#/' : href === base;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else        a.removeAttribute('aria-current');
   });
 }
 
@@ -223,10 +240,24 @@ function handleRoute() {
     else if (mode === 'write')      renderWriteMode(parts[1]);
     else renderHome();
   } else if (parts[0] === 'games') {
-    if (!parts[1])          renderGames();
-    else if (parts[2] === 'match') renderMatchGame(parts[1]);
-    else if (parts[2] === 'speed') renderSpeedRound(parts[1]);
-    else renderGames();
+    if (parts.length <= 1 || !parts[1]) {
+      renderGames();
+    } else if (parts.length === 2) {
+      renderGameSetPicker(parts[1]);          /* #/games/gameKey */
+    } else {
+      var gk = parts[2];                      /* #/games/setId/gameKey */
+      var gameMap = {
+        match:     function() { renderMatchGame(parts[1]); },
+        speed:     function() { renderSpeedRound(parts[1]); },
+        hangman:   function() { renderHangman(parts[1]); },
+        scramble:  function() { renderScramble(parts[1]); },
+        truefalse: function() { renderTrueFalse(parts[1]); },
+        survival:  function() { renderSurvival(parts[1]); },
+        gravity:   function() { renderGravity(parts[1]); },
+        lightning: function() { renderLightning(parts[1]); },
+      };
+      if (gameMap[gk]) gameMap[gk](); else renderGames();
+    }
   } else {
     renderHome();
   }
@@ -236,108 +267,120 @@ function handleRoute() {
    PAGE: HOME
 ══════════════════════════════════════ */
 
-var STUDY_MODES = [
-  { label: 'Flashcards',  desc: 'Flip through cards at your own pace',    path: 'flashcards' },
-  { label: 'Write Mode',  desc: 'Type the answer from memory',            path: 'write' },
-  { label: 'Test Mode',   desc: 'Multiple-choice quiz on the full set',   path: 'test' },
-  { label: 'Games',       desc: 'Match pairs and speed rounds',           path: 'games' },
-];
-
 function renderHome() {
   announce('Home');
-  var sets       = Storage.getAll();
-  var totalCards = sets.reduce(function (n, s) { return n + s.cards.length; }, 0);
+  var sets = Storage.getAll();
+  var featured = sets[0] || null;
+  var hour = new Date().getHours();
+  var greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   $app.innerHTML =
-    '<section class="page animate-fade-up" aria-labelledby="home-heading">' +
+    '<section class="page home-page animate-fade-up" aria-labelledby="home-heading">' +
 
-      /* Dashboard header */
-      '<header class="home-header">' +
+      /* ── Greeting ── */
+      '<header class="home-greeting">' +
         '<div>' +
-          '<h1 id="home-heading">Study anything.<br>Play everything.</h1>' +
-          '<p class="home-meta">' + sets.length + ' set' + (sets.length !== 1 ? 's' : '') + ' &middot; ' + totalCards + ' card' + (totalCards !== 1 ? 's' : '') + '</p>' +
+          '<h1 id="home-heading" class="home-greeting-text">' + e(greeting) + '</h1>' +
+          '<p class="home-greeting-sub">What will you study today?</p>' +
         '</div>' +
-        '<a href="#/create" class="btn btn-primary btn-lg">New Set</a>' +
+        '<a href="#/create" class="btn btn-primary">New Set</a>' +
       '</header>' +
 
-      /* Study modes */
-      '<section class="mt-5" aria-labelledby="modes-heading">' +
-        '<h2 class="section-eyebrow" id="modes-heading">Study Modes</h2>' +
-        '<ul class="mode-list mt-2" role="list" id="quick-actions"></ul>' +
-      '</section>' +
+      /* ── Search ── */
+      '<div class="home-search-wrap" role="search">' +
+        '<label for="home-q" class="sr-only">Search your sets</label>' +
+        '<input id="home-q" type="search" class="input home-search-input" placeholder="Search your sets..." autocomplete="off" />' +
+      '</div>' +
 
-      /* Recent sets */
-      (sets.length > 0
-        ? '<section class="mt-5" aria-labelledby="recent-heading">' +
-            '<div class="section-row">' +
-              '<h2 class="section-eyebrow" id="recent-heading">Recent</h2>' +
-              '<a href="#/library" class="link-subtle">All sets &rarr;</a>' +
-            '</div>' +
-            '<ul class="card-grid" role="list" id="recent-sets"></ul>' +
+      /* ── Featured "continue studying" card ── */
+      (featured
+        ? '<section class="mt-4" aria-labelledby="continue-heading">' +
+            '<header class="home-section-header">' +
+              '<h2 id="continue-heading" class="section-eyebrow">Continue studying</h2>' +
+              '<a href="#/set/' + e(featured.id) + '" class="link-subtle">View set</a>' +
+            '</header>' +
+            '<article class="featured-card card" id="featured-card"></article>' +
           '</section>'
-        : '<div class="empty-state mt-5">' +
-            '<p class="empty-icon" aria-hidden="true">&#128218;</p>' +
-            '<h2>No sets yet</h2>' +
-            '<p>Create your first set to get started</p>' +
-            '<a href="#/create" class="btn btn-primary" style="margin-top:.75rem">New Set</a>' +
-          '</div>'
+        : ''
       ) +
+
+      /* ── Your sets ── */
+      '<section class="mt-4" aria-labelledby="your-sets-heading">' +
+        '<header class="home-section-header">' +
+          '<h2 id="your-sets-heading">' + (sets.length > 0 ? 'Your sets' : '') + '</h2>' +
+          (sets.length > 0 ? '<a href="#/library" class="link-subtle">See all</a>' : '') +
+        '</header>' +
+        '<ul class="card-grid" role="list" id="home-grid"></ul>' +
+      '</section>' +
 
     '</section>';
 
-  /* Study mode rows */
-  var qaList = document.getElementById('quick-actions');
-  if (qaList) {
-    STUDY_MODES.forEach(function (m) {
-      var li  = document.createElement('li');
-      var btn = document.createElement('button');
-      btn.type      = 'button';
-      btn.className = 'mode-row';
-      btn.setAttribute('aria-label', m.label + ' — ' + m.desc);
+  /* Build featured card */
+  if (featured) {
+    var fc = document.getElementById('featured-card');
+    var firstCard = featured.cards[0] || { term: '' };
 
-      var body = document.createElement('span');
-      body.className = 'mode-row-body';
+    fc.innerHTML =
+      '<div class="featured-left">' +
+        '<p class="featured-meta"></p>' +
+        '<h3 class="featured-title"></h3>' +
+        (featured.description ? '<p class="featured-desc"></p>' : '') +
+        '<nav class="featured-actions" aria-label="Study ' + e(featured.title) + '">' +
+          '<a href="#/study/' + e(featured.id) + '/flashcards" class="feat-btn">Flashcards</a>' +
+          '<a href="#/study/' + e(featured.id) + '/test"       class="feat-btn">Test</a>' +
+          '<a href="#/study/' + e(featured.id) + '/write"      class="feat-btn">Write</a>' +
+          '<a href="#/games/' + e(featured.id) + '/match"      class="feat-btn">Match</a>' +
+          '<a href="#/games/' + e(featured.id) + '/survival"   class="feat-btn">Survival</a>' +
+        '</nav>' +
+      '</div>' +
+      '<div class="featured-right" aria-hidden="true">' +
+        '<div class="featured-preview">' +
+          '<p class="featured-preview-label">First card</p>' +
+          '<p class="featured-preview-term" id="feat-term"></p>' +
+        '</div>' +
+      '</div>';
 
-      var lbl = document.createElement('span');
-      lbl.className   = 'mode-row-label';
-      lbl.textContent = m.label;
-
-      var desc = document.createElement('span');
-      desc.className   = 'mode-row-desc';
-      desc.textContent = m.desc;
-
-      body.appendChild(lbl);
-      body.appendChild(document.createElement('br'));
-      body.appendChild(desc);
-
-      var arrow = document.createElement('span');
-      arrow.className   = 'mode-row-arrow';
-      arrow.textContent = '→';
-      arrow.setAttribute('aria-hidden', 'true');
-
-      btn.appendChild(body);
-      btn.appendChild(arrow);
-
-      btn.addEventListener('click', function () {
-        if (m.path === 'games') { navigate('#/games'); return; }
-        if (sets.length === 0)  { navigate('#/create'); return; }
-        navigate('#/study/' + sets[0].id + '/' + m.path);
-      });
-
-      li.appendChild(btn);
-      qaList.appendChild(li);
-    });
+    fc.querySelector('.featured-meta').textContent =
+      featured.category + ' · ' + featured.cards.length + ' card' + (featured.cards.length !== 1 ? 's' : '');
+    fc.querySelector('.featured-title').textContent = featured.title;
+    if (featured.description) fc.querySelector('.featured-desc').textContent = featured.description;
+    document.getElementById('feat-term').textContent = firstCard.term;
   }
 
-  /* Recent set cards */
-  var recentList = document.getElementById('recent-sets');
-  if (recentList) {
-    sets.slice(0, 4).forEach(function (set) {
+  /* Build / filter grid */
+  function renderGrid(q) {
+    var grid = document.getElementById('home-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    var filtered = q
+      ? sets.filter(function (s) { return s.title.toLowerCase().includes(q.toLowerCase()); })
+      : sets;
+
+    if (filtered.length === 0 && sets.length === 0) {
+      grid.innerHTML =
+        '<li class="home-empty" style="grid-column:1/-1">' +
+          '<p>You have no sets yet.</p>' +
+          '<a href="#/create" class="btn btn-primary" style="margin-top:.75rem">Create your first set</a>' +
+        '</li>';
+      return;
+    }
+    if (filtered.length === 0) {
+      grid.innerHTML = '<li style="grid-column:1/-1;color:var(--text-3)">No sets match your search.</li>';
+      return;
+    }
+
+    filtered.forEach(function (set) {
       var li = document.createElement('li');
-      li.appendChild(createSetCard(set));
-      recentList.appendChild(li);
+      li.appendChild(createSetCard(set, function () { renderGrid(document.getElementById('home-q') ? document.getElementById('home-q').value : ''); }));
+      grid.appendChild(li);
     });
   }
+
+  renderGrid('');
+
+  var searchEl = document.getElementById('home-q');
+  if (searchEl) searchEl.addEventListener('input', function () { renderGrid(this.value); });
 }
 
 /* ══════════════════════════════════════
@@ -362,7 +405,7 @@ function renderLibrary() {
 
       '<search aria-label="Search and filter sets">' +
         '<label for="lib-search" class="sr-only">Search sets</label>' +
-        '<input id="lib-search" type="search" class="input library-search" placeholder="🔍  Search sets…" />' +
+        '<input id="lib-search" type="search" class="input library-search" placeholder="Search sets..." />' +
         '<fieldset>' +
           '<legend class="sr-only">Filter by category</legend>' +
           '<div class="category-pills" role="group" aria-label="Category filters">' +
@@ -395,11 +438,10 @@ function renderLibrary() {
 
     if (filtered.length === 0) {
       results.innerHTML =
-        '<div class="empty-state mt-4">' +
-          '<p class="icon" aria-hidden="true">🔍</p>' +
+        '<div class="empty-state">' +
           '<h2>' + (currentSearch || currentCat !== 'All' ? 'No sets match your filters' : 'Your library is empty') + '</h2>' +
           '<p>' + (currentSearch || currentCat !== 'All' ? 'Try a different search or category' : 'Create your first set to get started') + '</p>' +
-          (!currentSearch && currentCat === 'All' ? '<a href="#/create" class="btn btn-primary mt-2">+ Create Set</a>' : '') +
+          (!currentSearch && currentCat === 'All' ? '<a href="#/create" class="btn btn-primary" style="margin-top:.75rem">New Set</a>' : '') +
         '</div>';
       return;
     }
@@ -460,7 +502,7 @@ function renderCreate(editId) {
         '</div>' +
         '<div class="create-header-actions">' +
           '<a href="' + (editId ? '#/set/' + e(editId) : '#/library') + '" class="btn btn-ghost">Cancel</a>' +
-          '<button id="save-top" type="button" class="btn btn-primary">✓ ' + (editId ? 'Save Changes' : 'Create Set') + '</button>' +
+          '<button id="save-top" type="button" class="btn btn-primary">' + (editId ? 'Save Changes' : 'Create Set') + '</button>' +
         '</div>' +
       '</header>' +
 
@@ -495,7 +537,7 @@ function renderCreate(editId) {
       '<section class="cards-section" aria-labelledby="cards-heading">' +
         '<header class="ai-section-header mt-4 mb-2">' +
           '<h2 id="cards-heading">Cards</h2>' +
-          '<button id="ai-open-btn" type="button" class="btn btn-primary btn-sm">✨ Generate with AI</button>' +
+          '<button id="ai-open-btn" type="button" class="btn btn-primary btn-sm">Generate with AI</button>' +
         '</header>' +
         '<span id="err-cards" class="field-error" role="alert" hidden>All cards need a term and definition</span>' +
         '<ol id="cards-list" class="cards-list" aria-label="Flashcard pairs"></ol>' +
@@ -504,7 +546,7 @@ function renderCreate(editId) {
 
       '<footer class="create-footer mt-4">' +
         '<a href="' + (editId ? '#/set/' + e(editId) : '#/library') + '" class="btn btn-ghost">Cancel</a>' +
-        '<button id="save-bottom" type="button" class="btn btn-primary btn-lg">✓ ' + (editId ? 'Save Changes' : 'Create Set') + '</button>' +
+        '<button id="save-bottom" type="button" class="btn btn-primary btn-lg">' + (editId ? 'Save Changes' : 'Create Set') + '</button>' +
       '</footer>' +
     '</section>';
 
@@ -634,19 +676,19 @@ function renderSetDetail(setId) {
   $app.innerHTML =
     '<section class="page animate-fade-up" aria-labelledby="detail-heading">' +
       '<header class="detail-header">' +
-        '<a href="#/library" class="btn btn-ghost btn-sm">← Back</a>' +
+        '<a href="#/library" class="btn btn-ghost btn-sm">&larr; Back</a>' +
         '<nav class="detail-header-actions" aria-label="Set actions">' +
-          '<a href="#/create/' + e(set.id) + '" class="btn btn-ghost btn-sm">✏️ Edit</a>' +
-          '<button id="btn-delete" type="button" class="btn btn-danger btn-sm">🗑️ Delete</button>' +
+          '<a href="#/create/' + e(set.id) + '" class="btn btn-ghost btn-sm">Edit</a>' +
+          '<button id="btn-delete" type="button" class="btn btn-danger btn-sm">Delete</button>' +
         '</nav>' +
       '</header>' +
 
       '<div class="mt-2">' +
         '<h1 id="detail-heading"></h1>' +
         (set.description ? '<p class="detail-desc"></p>' : '') +
-        '<div class="flex gap-1 items-center mt-1">' +
-          '<span class="badge badge-purple">' + e(set.category) + '</span>' +
-          '<span class="badge badge-cyan">' + set.cards.length + ' cards</span>' +
+        '<div class="flex gap-sm items-center mt-2">' +
+          '<span class="tag">' + e(set.category) + '</span>' +
+          '<span class="tag">' + set.cards.length + ' card' + (set.cards.length !== 1 ? 's' : '') + '</span>' +
         '</div>' +
       '</div>' +
 
@@ -678,12 +720,11 @@ function renderSetDetail(setId) {
         '<h2 id="study-heading">Study</h2>' +
         '<ul class="modes-grid mt-2" role="list">' +
           [
-            { href: '#/study/'+set.id+'/flashcards', icon:'🃏', label:'Flashcards',  desc:'Flip through cards at your own pace',     mc:'var(--primary)' },
-            { href: '#/study/'+set.id+'/write',      icon:'✍️', label:'Write Mode',  desc:'Type the definition from memory',          mc:'var(--pink)' },
-            { href: '#/study/'+set.id+'/test',       icon:'📝', label:'Test Mode',   desc:'Multiple-choice test on the full set',     mc:'var(--cyan)' },
+            { href: '#/study/'+set.id+'/flashcards', label:'Flashcards', desc:'Flip through cards at your own pace'   },
+            { href: '#/study/'+set.id+'/write',      label:'Write Mode', desc:'Type the definition from memory'       },
+            { href: '#/study/'+set.id+'/test',       label:'Test Mode',  desc:'Multiple-choice test on the full set'  },
           ].map(function (m) {
-            return '<li><a href="' + m.href + '" class="mode-card card" style="--mc:' + m.mc + '">' +
-              '<span class="mode-icon" aria-hidden="true">' + m.icon + '</span>' +
+            return '<li><a href="' + m.href + '" class="mode-card card">' +
               '<span class="mode-label">' + e(m.label) + '</span>' +
               '<span class="mode-desc">' + e(m.desc) + '</span>' +
             '</a></li>';
@@ -695,14 +736,10 @@ function renderSetDetail(setId) {
       '<section class="mt-3" aria-labelledby="games-heading">' +
         '<h2 id="games-heading">Games</h2>' +
         '<ul class="modes-grid mt-2" role="list">' +
-          [
-            { href: '#/games/'+set.id+'/match', icon:'🔗', label:'Match',        desc:'Flip cards to find matching pairs',    mc:'var(--green)' },
-            { href: '#/games/'+set.id+'/speed', icon:'⚡', label:'Speed Round',  desc:'Answer fast — beat the clock',        mc:'var(--amber)' },
-          ].map(function (m) {
-            return '<li><a href="' + m.href + '" class="mode-card card" style="--mc:' + m.mc + '">' +
-              '<span class="mode-icon" aria-hidden="true">' + m.icon + '</span>' +
-              '<span class="mode-label">' + e(m.label) + '</span>' +
-              '<span class="mode-desc">' + e(m.desc) + '</span>' +
+          ALL_GAMES.map(function (g) {
+            return '<li><a href="#/games/' + e(set.id) + '/' + g.key + '" class="mode-card card" style="--mc:' + g.gc + '">' +
+              '<span class="mode-label">' + e(g.label) + '</span>' +
+              '<span class="mode-desc">' + e(g.desc) + '</span>' +
             '</a></li>';
           }).join('') +
         '</ul>' +
@@ -824,8 +861,8 @@ function renderFlashcards(setId) {
         '</article>' +
 
         '<div id="fc-actions" class="fc-actions' + (isFlipped ? ' visible' : '') + '" role="group" aria-label="How well did you know it?">' +
-          '<button id="fc-miss" type="button" class="btn fc-miss-btn">✕ Still Learning</button>' +
-          '<button id="fc-got"  type="button" class="btn fc-got-btn">✓ Got It</button>' +
+          '<button id="fc-miss" type="button" class="btn fc-miss-btn">Still Learning</button>' +
+          '<button id="fc-got"  type="button" class="btn fc-got-btn">Got It</button>' +
         '</div>' +
 
         (!isFlipped ? '<p class="fc-flip-hint" aria-hidden="true">Flip the card to reveal the answer</p>' : '') +
@@ -863,7 +900,7 @@ function renderFlashcards(setId) {
     $app.innerHTML =
       '<section class="page fc-done animate-fade-up" aria-labelledby="fc-done-heading">' +
         '<article class="card fc-done-card">' +
-          '<p aria-hidden="true" class="fc-done-emoji">' + (pct === 100 ? '🎉' : pct >= 70 ? '🙌' : '💪') + '</p>' +
+          '<p class="result-label">' + (pct === 100 ? 'Perfect!' : pct >= 70 ? 'Nice work.' : 'Keep at it.') + '</p>' +
           '<h1 id="fc-done-heading">Round Complete!</h1>' +
           '<div class="fc-score-ring" style="--pct:' + pct + '" role="img" aria-label="' + pct + '% correct">' +
             '<div class="fc-score-ring-inner">' +
@@ -976,8 +1013,8 @@ function renderTestMode(setId) {
         fb.hidden = false;
         fb.innerHTML =
           (isCorrect
-            ? '<span class="feedback-correct">✓ Correct!</span>'
-            : '<span class="feedback-wrong">✕ Correct answer: <strong></strong></span>'
+            ? '<span class="feedback-correct">Correct!</span>'
+            : '<span class="feedback-wrong">Incorrect &mdash; correct answer: <strong></strong></span>'
           ) +
           '<button id="next-q" type="button" class="btn btn-primary">' + (index + 1 === questions.length ? 'See Results →' : 'Next →') + '</button>';
 
@@ -1001,7 +1038,7 @@ function renderTestMode(setId) {
     $app.innerHTML =
       '<section class="page test-done animate-fade-up" aria-labelledby="test-done-heading">' +
         '<article class="card test-results">' +
-          '<p class="test-done-emoji" aria-hidden="true">' + (pct === 100 ? '🏆' : pct >= 70 ? '🎯' : '📚') + '</p>' +
+          '<p class="result-label">' + (pct === 100 ? 'Perfect score.' : pct >= 70 ? 'Good work.' : 'Keep practicing.') + '</p>' +
           '<h1 id="test-done-heading">Test Complete!</h1>' +
           '<p class="test-score-pill" style="background:' + (pct >= 70 ? 'var(--green-dim)' : 'var(--red-dim)') + ';color:' + (pct >= 70 ? 'var(--green)' : 'var(--red)') + '">' +
             correct + ' / ' + questions.length + ' correct — ' + pct + '%' +
@@ -1022,7 +1059,8 @@ function renderTestMode(setId) {
       var icon = document.createElement('span');
       icon.className = 'review-icon';
       icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = a.isCorrect ? '✓' : '✕';
+      icon.textContent = a.isCorrect ? 'pass' : 'fail';
+      icon.style.fontSize = '0.65rem';
 
       var body = document.createElement('div');
       var q = document.createElement('p');
@@ -1112,9 +1150,9 @@ function renderWriteMode(setId) {
 
     if (result) {
       input.classList.add('input-' + result);
-      var label = result === 'correct' ? '<span class="wf-correct">✓ Correct!</span>'
-                : result === 'close'   ? '<span class="wf-close">~ Close</span>'
-                :                       '<span class="wf-wrong">✕ Incorrect</span>';
+      var label = result === 'correct' ? '<span class="wf-correct">Correct!</span>'
+                : result === 'close'   ? '<span class="wf-close">Close</span>'
+                :                       '<span class="wf-wrong">Incorrect</span>';
       var ansLine = result !== 'correct' ? '<p style="font-size:.85rem;margin-top:.35rem;color:var(--text-dim)">Answer: <strong></strong></p>' : '';
       fbEl.innerHTML =
         '<div class="write-feedback">' +
@@ -1153,7 +1191,7 @@ function renderWriteMode(setId) {
     $app.innerHTML =
       '<section class="page write-done animate-fade-up" aria-labelledby="write-done-heading">' +
         '<article class="card write-results">' +
-          '<p aria-hidden="true" style="font-size:2.5rem">' + (correct + close * 0.5) / deck.length >= 0.8 ? '🌟' : '💡' + '</p>' +
+          '<p class="result-label">' + (((correct + close * 0.5) / deck.length) >= 0.8 ? 'Great job.' : 'Keep practicing.') + '</p>' +
           '<h1 id="write-done-heading">Round Complete!</h1>' +
           '<dl class="write-score-row">' +
             '<div><dd style="color:var(--green)">' + correct + '</dd><dt>Correct</dt></div>' +
@@ -1192,73 +1230,205 @@ function renderWriteMode(setId) {
 }
 
 /* ══════════════════════════════════════
+   ALL GAME DEFINITIONS (shared)
+══════════════════════════════════════ */
+/* SVG icons — 48×48 viewBox, stroke-based, transparent */
+var S = 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"';
+var SVG = function(body) { return '<svg viewBox="0 0 48 48" fill="none" ' + S + '>' + body + '</svg>'; };
+
+var ALL_GAMES = [
+  {
+    key:'match', label:'Match', gc:'var(--green)',
+    svg: SVG(
+      '<rect x="4" y="6" width="18" height="12" rx="3"/>' +
+      '<rect x="26" y="30" width="18" height="12" rx="3"/>' +
+      '<path d="M13 18 L13 30 L35 30" stroke-dasharray="4 3"/>'
+    ),
+    desc:'Find all term/definition pairs before the clock stops.', min:2
+  },
+  {
+    key:'speed', label:'Speed Round', gc:'var(--amber)',
+    svg: SVG(
+      '<circle cx="24" cy="28" r="16"/>' +
+      '<polyline points="24 17 24 28 31 34"/>' +
+      '<line x1="18" y1="5" x2="30" y2="5"/>' +
+      '<line x1="24" y1="5" x2="24" y2="12"/>'
+    ),
+    desc:'Multiple choice, 12 seconds per question. Points for speed.', min:2
+  },
+  {
+    key:'hangman', label:'Hangman', gc:'var(--red)',
+    svg: SVG(
+      '<line x1="6" y1="44" x2="42" y2="44"/>' +
+      '<line x1="14" y1="44" x2="14" y2="5"/>' +
+      '<line x1="14" y1="5" x2="32" y2="5"/>' +
+      '<line x1="32" y1="5" x2="32" y2="13"/>' +
+      '<circle cx="32" cy="20" r="7"/>' +
+      '<line x1="32" y1="27" x2="32" y2="37"/>' +
+      '<line x1="32" y1="31" x2="25" y2="35"/>' +
+      '<line x1="32" y1="31" x2="39" y2="35"/>' +
+      '<line x1="32" y1="37" x2="25" y2="43"/>' +
+      '<line x1="32" y1="37" x2="39" y2="43"/>'
+    ),
+    desc:'Given the definition, guess the term letter by letter.', min:1
+  },
+  {
+    key:'scramble', label:'Word Scramble', gc:'var(--blue)',
+    svg: SVG(
+      '<rect x="4" y="4" width="13" height="13" rx="2"/>' +
+      '<rect x="31" y="4" width="13" height="13" rx="2"/>' +
+      '<rect x="18" y="17" width="12" height="12" rx="2"/>' +
+      '<rect x="4" y="31" width="13" height="13" rx="2"/>' +
+      '<rect x="31" y="31" width="13" height="13" rx="2"/>'
+    ),
+    desc:'Letters of the term are shuffled. Tap them in the right order.', min:1
+  },
+  {
+    key:'truefalse', label:'True or False', gc:'var(--accent)',
+    svg: SVG(
+      '<circle cx="13" cy="24" r="10"/>' +
+      '<polyline points="8 24 12 28 19 20"/>' +
+      '<circle cx="35" cy="24" r="10"/>' +
+      '<line x1="30" y1="19" x2="40" y2="29"/>' +
+      '<line x1="40" y1="19" x2="30" y2="29"/>'
+    ),
+    desc:'Is this term/definition pair correct? Decide fast.', min:2
+  },
+  {
+    key:'survival', label:'Survival', gc:'var(--red)',
+    svg: SVG(
+      '<path d="M24 40 C24 40 6 28 6 16 C6 9 11 5 17 5 C20 5 22 7 24 10 C26 7 28 5 31 5 C37 5 42 9 42 16 C42 28 24 40 24 40Z"/>'
+    ),
+    desc:'3 lives. Infinite questions. Beat your high score.', min:2
+  },
+  {
+    key:'gravity', label:'Gravity', gc:'var(--purple)',
+    svg: SVG(
+      '<circle cx="24" cy="9" r="7"/>' +
+      '<line x1="24" y1="16" x2="24" y2="36"/>' +
+      '<polyline points="15 28 24 37 33 28"/>' +
+      '<line x1="6" y1="21" x2="13" y2="21" stroke-width="2" opacity="0.45"/>' +
+      '<line x1="35" y1="21" x2="42" y2="21" stroke-width="2" opacity="0.45"/>' +
+      '<line x1="4" y1="28" x2="13" y2="28" stroke-width="2" opacity="0.45"/>' +
+      '<line x1="35" y1="28" x2="44" y2="28" stroke-width="2" opacity="0.45"/>'
+    ),
+    desc:'Type the term before the definition card hits the bottom.', min:2
+  },
+  {
+    key:'lightning', label:'Lightning Run', gc:'var(--amber)',
+    svg: SVG(
+      '<polyline points="30 4 16 26 25 26 18 44"/>'
+    ),
+    desc:'Race through the entire deck as fast as possible.', min:1
+  },
+];
+
+/* ══════════════════════════════════════
    PAGE: GAMES HUB
 ══════════════════════════════════════ */
 
 function renderGames() {
   announce('Games');
-  var sets = Storage.getAll();
-
-  var gameDefs = [
-    { key:'match', icon:'🔗', label:'Match', gc:'var(--green)',
-      desc:'Flip cards and find matching term/definition pairs. Classic memory game — with a study twist.',
-      path:'match', min:2 },
-    { key:'speed', icon:'⚡', label:'Speed Round', gc:'var(--amber)',
-      desc:'Race against the clock! Answer multiple-choice questions as fast as possible. Every second counts.',
-      path:'speed', min:2 },
-  ];
 
   $app.innerHTML =
     '<section class="page animate-fade-up" aria-labelledby="games-heading">' +
-      '<header class="games-hero">' +
-        '<h1 id="games-heading">🎮 Game Modes</h1>' +
-        '<p>Pick a game, pick a set — let\'s play</p>' +
+      '<header class="games-header">' +
+        '<h1 id="games-heading">Game Modes</h1>' +
+        '<p style="color:var(--text-3);margin-top:.35rem">Pick a game, then choose a set</p>' +
       '</header>' +
-      '<div class="games-grid mt-4" id="games-grid"></div>' +
+      '<ul class="games-hub-grid mt-4" role="list" id="games-hub-list"></ul>' +
     '</section>';
 
-  var grid = document.getElementById('games-grid');
-  gameDefs.forEach(function (game) {
-    var eligible = sets.filter(function (s) { return s.cards.length >= game.min; });
+  var list = document.getElementById('games-hub-list');
+  ALL_GAMES.forEach(function (game) {
+    var li = document.createElement('li');
+    var a  = document.createElement('a');
+    a.href      = '#/games/' + game.key;
+    a.className = 'game-hub-tile';
+    a.style.setProperty('--gc', game.gc);
+    a.setAttribute('aria-label', game.label + ': ' + game.desc);
 
-    var card = document.createElement('article');
-    card.className = 'game-card card';
-    card.style.setProperty('--gc', game.gc);
+    var iconArea = document.createElement('div');
+    iconArea.className = 'game-hub-icon-area';
+    iconArea.setAttribute('aria-hidden', 'true');
+    iconArea.innerHTML = '<div class="game-hub-icon">' + game.svg + '</div>';
 
-    card.innerHTML =
-      '<div class="game-card-top">' +
-        '<p class="game-icon" aria-hidden="true">' + game.icon + '</p>' +
-        '<h2 class="game-title">' + e(game.label) + '</h2>' +
-        '<p class="game-desc">' + e(game.desc) + '</p>' +
-      '</div>' +
-      '<p class="game-sets-label">Choose a set to play:</p>' +
-      '<ul class="game-sets-list" id="sets-' + game.key + '" role="list" aria-label="Sets available for ' + e(game.label) + '"></ul>';
+    var body = document.createElement('div');
+    body.className = 'game-hub-body';
 
-    var ul = card.querySelector('#sets-' + game.key);
-    if (eligible.length === 0) {
-      var msg = document.createElement('p');
-      msg.className = 'game-no-sets';
-      msg.textContent = 'Create a set with at least ' + game.min + ' cards to play.';
-      ul.appendChild(msg);
-    } else {
-      eligible.forEach(function (set) {
-        var li = document.createElement('li');
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'game-set-btn';
-        btn.innerHTML =
-          '<span class="game-set-name"></span>' +
-          '<span class="game-set-count">' + set.cards.length + ' cards</span>' +
-          '<span class="game-set-arrow" aria-hidden="true">→</span>';
-        btn.querySelector('.game-set-name').textContent = set.title;
-        btn.setAttribute('aria-label', 'Play ' + game.label + ' with ' + set.title);
-        btn.addEventListener('click', function () { navigate('#/games/' + set.id + '/' + game.path); });
-        li.appendChild(btn);
-        ul.appendChild(li);
-      });
-    }
+    var title = document.createElement('h2');
+    title.className   = 'game-hub-title';
+    title.textContent = game.label;
 
-    grid.appendChild(card);
+    var desc = document.createElement('p');
+    desc.className   = 'game-hub-desc';
+    desc.textContent = game.desc;
+
+    body.appendChild(title);
+    body.appendChild(desc);
+    a.appendChild(iconArea);
+    a.appendChild(body);
+    li.appendChild(a);
+    list.appendChild(li);
+  });
+}
+
+/* ══════════════════════════════════════
+   PAGE: GAME SET PICKER
+══════════════════════════════════════ */
+
+function renderGameSetPicker(gameKey) {
+  var meta = ALL_GAMES.find(function (g) { return g.key === gameKey; });
+  if (!meta) { navigate('#/games'); return; }
+  announce(meta.label);
+
+  var sets = Storage.getAll().filter(function (s) { return s.cards.length >= meta.min; });
+
+  $app.innerHTML =
+    '<section class="page animate-fade-up" aria-labelledby="gsp-heading">' +
+      '<a href="#/games" class="btn btn-ghost btn-sm" style="display:inline-flex;margin-bottom:1.25rem">&larr; All Games</a>' +
+      '<header class="gsp-header" style="--gc:' + meta.gc + '">' +
+        '<div class="gsp-header-icon" aria-hidden="true">' + meta.svg + '</div>' +
+        '<div>' +
+          '<h1 id="gsp-heading">' + e(meta.label) + '</h1>' +
+          '<p class="gsp-header-desc">' + e(meta.desc) + '</p>' +
+        '</div>' +
+      '</header>' +
+      '<h2 class="section-eyebrow mb-2">Choose a set</h2>' +
+      (sets.length > 0
+        ? '<ul class="gsp-list" role="list" id="gsp-sets"></ul>'
+        : '<p style="color:var(--text-3);margin-top:.75rem">No sets with ' + meta.min + '+ cards. <a href="#/create" style="color:var(--accent)">Create one</a>.</p>'
+      ) +
+    '</section>';
+
+  var list = document.getElementById('gsp-sets');
+  if (!list) return;
+
+  sets.forEach(function (set) {
+    var li  = document.createElement('li');
+    var row = document.createElement('a');
+    row.href      = '#/games/' + set.id + '/' + gameKey;
+    row.className = 'gsp-row card';
+
+    var info  = document.createElement('span');
+    var name  = document.createElement('span');
+    name.className   = 'gsp-name';
+    name.textContent = set.title;
+    var count = document.createElement('span');
+    count.className   = 'gsp-count';
+    count.textContent = set.cards.length + ' cards';
+    info.appendChild(name);
+    info.appendChild(count);
+
+    var arrow = document.createElement('span');
+    arrow.className   = 'gsp-arrow';
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '→';
+
+    row.appendChild(info);
+    row.appendChild(arrow);
+    li.appendChild(row);
+    list.appendChild(li);
   });
 }
 
@@ -1290,7 +1460,7 @@ function renderMatchGame(setId) {
           '<h1 id="match-sr-heading" class="sr-only">Match Game: ' + e(set.title) + '</h1>' +
           '<p class="match-set-name">' + e(set.title) + '</p>' +
           '<div class="match-stats" aria-live="off">' +
-            '<span class="match-stat" id="match-timer">⏱ 0s</span>' +
+            '<span class="match-stat" id="match-timer">0s</span>' +
             '<output class="match-stat" id="match-progress" aria-live="polite">0/' + pairs.length + ' matched</output>' +
           '</div>' +
         '</div>' +
@@ -1322,7 +1492,7 @@ function renderMatchGame(setId) {
     var el = document.getElementById('match-timer');
     if (el) {
       var m = Math.floor(seconds / 60);
-      el.textContent = '⏱ ' + (m > 0 ? m + 'm ' : '') + (seconds % 60) + 's';
+      el.textContent = (m > 0 ? m + 'm ' : '') + (seconds % 60) + 's';
     }
   }, 1000);
 
@@ -1399,7 +1569,6 @@ function renderMatchGame(setId) {
     $app.innerHTML =
       '<section class="page match-done animate-fade-up" aria-labelledby="match-done-heading">' +
         '<article class="card match-results">' +
-          '<p aria-hidden="true" style="font-size:3rem">🎉</p>' +
           '<h1 id="match-done-heading">You matched them all!</h1>' +
           '<dl class="match-final-stats">' +
             '<div class="mfs-item"><dd class="mfs-val">' + timeStr + '</dd><dt class="mfs-label">Time</dt></div>' +
@@ -1457,7 +1626,7 @@ function renderSpeedRound(setId) {
     if (fill) { fill.style.width = (timeLeft / TIME_PER_Q * 100) + '%'; fill.style.background = timeLeft > 7 ? 'var(--green)' : timeLeft > 4 ? 'var(--amber)' : 'var(--red)'; }
     if (num)  { num.textContent = timeLeft + 's'; num.style.color = timeLeft > 7 ? 'var(--green)' : timeLeft > 4 ? 'var(--amber)' : 'var(--red)'; }
     var hint = document.getElementById('sr-hint');
-    if (hint) hint.textContent = timeLeft <= 3 ? '⚠️ Hurry!' : '';
+    if (hint) hint.textContent = timeLeft <= 3 ? 'Hurry!' : '';
   }
 
   function render() {
@@ -1471,8 +1640,8 @@ function renderSpeedRound(setId) {
             '<h1 id="sr-sr-heading" class="sr-only">Speed Round: ' + e(set.title) + '</h1>' +
             '<p class="sr-set-name">' + e(set.title) + '</p>' +
             '<div class="sr-header-stats">' +
-              '<span class="sr-pts">⚡ ' + score + ' pts</span>' +
-              (streak >= 2 ? '<span class="badge badge-amber">🔥 ' + streak + ' streak</span>' : '') +
+              '<span class="sr-pts">' + score + ' pts</span>' +
+              (streak >= 2 ? '<span class="tag tag-amber">' + streak + ' streak</span>' : '') +
             '</div>' +
           '</div>' +
           '<output class="test-counter" aria-live="polite">' + (index + 1) + '/' + questions.length + '</output>' +
@@ -1553,7 +1722,7 @@ function renderSpeedRound(setId) {
     $app.innerHTML =
       '<section class="page sr-done animate-fade-up" aria-labelledby="sr-done-heading">' +
         '<article class="card sr-results">' +
-          '<p class="sr-done-emoji" aria-hidden="true">' + (score >= maxPts * 0.8 ? '🏆' : score >= maxPts * 0.5 ? '⚡' : '💪') + '</p>' +
+          '<p class="result-label">' + (score >= maxPts * 0.8 ? 'Top score.' : score >= maxPts * 0.5 ? 'Good run.' : 'Keep going.') + '</p>' +
           '<h1 id="sr-done-heading">Speed Round Done!</h1>' +
           '<div class="sr-score-display">' +
             '<output class="sr-score-num" aria-label="Score: ' + score + ' out of ' + maxPts + '">' + score + '</output>' +
@@ -1562,9 +1731,9 @@ function renderSpeedRound(setId) {
           '<dl class="sr-final-stats">' +
             '<div class="sr-fstat"><dd><span style="color:var(--green)">' + correct + '</span></dd><dt><small>Correct</small></dt></div>' +
             '<div class="sr-fstat"><dd><span style="color:var(--amber)">' + best + '</span></dd><dt><small>Best Streak</small></dt></div>' +
-            '<div class="sr-fstat"><dd><span style="color:var(--cyan)">' + pct + '%</span></dd><dt><small>Accuracy</small></dt></div>' +
+            '<div class="sr-fstat"><dd><span style="color:var(--text)">' + pct + '%</span></dd><dt><small>Accuracy</small></dt></div>' +
           '</dl>' +
-          '<p class="sr-bonus-note">⚡ Answering in the first 6 seconds earns 2 pts — regular earns 1 pt</p>' +
+          '<p class="sr-bonus-note">Answering in the first 6 seconds earns 2 pts. Any correct answer earns 1 pt.</p>' +
           '<nav class="sr-done-actions" aria-label="Next steps">' +
             '<button id="sr-again" type="button" class="btn btn-primary btn-lg">Play Again</button>' +
             '<a href="#/set/' + e(setId) + '" class="btn btn-ghost">Back to Set</a>' +
@@ -1573,6 +1742,599 @@ function renderSpeedRound(setId) {
       '</section>';
 
     document.getElementById('sr-again').addEventListener('click', function () { renderSpeedRound(setId); });
+  }
+
+  render();
+}
+
+/* ══════════════════════════════════════
+   GAME: HANGMAN
+══════════════════════════════════════ */
+
+function renderHangman(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || !set.cards.length) { navigate('#/games'); return; }
+  announce('Hangman');
+
+  var MAX_WRONG = 6;
+  var deck = shuffle(set.cards.slice());
+  var deckIdx = 0;
+  var score = 0;
+  var card, termUpper, termLetterSet, wrongCount, guessed;
+
+  function loadCard() {
+    card = deck[deckIdx % deck.length];
+    if (deckIdx > 0 && deckIdx % deck.length === 0) deck = shuffle(set.cards.slice());
+    termUpper = card.term.toUpperCase();
+    termLetterSet = {};
+    termUpper.split('').forEach(function(ch) { if (/[A-Z]/.test(ch)) termLetterSet[ch] = true; });
+    wrongCount = 0;
+    guessed = {};
+  }
+
+  loadCard();
+
+  function isWon() {
+    return Object.keys(termLetterSet).every(function(ch) { return guessed[ch]; });
+  }
+
+  function render() {
+    var won  = isWon();
+    var lost = wrongCount >= MAX_WRONG;
+
+    var displayWord = termUpper.split('').map(function(ch) {
+      if (ch === ' ') return '<span class="hm-space"></span>';
+      if (!/[A-Z]/.test(ch)) return '<span class="hm-letter revealed">' + e(ch) + '</span>';
+      return guessed[ch]
+        ? '<span class="hm-letter revealed">' + ch + '</span>'
+        : (lost ? '<span class="hm-letter revealed" style="color:var(--red)">' + ch + '</span>'
+                : '<span class="hm-letter blank">_</span>');
+    }).join('');
+
+    var PARTS = [
+      '<circle cx="140" cy="72" r="20" class="hm-part"/>',
+      '<line x1="140" y1="92" x2="140" y2="150" class="hm-part"/>',
+      '<line x1="140" y1="112" x2="112" y2="138" class="hm-part"/>',
+      '<line x1="140" y1="112" x2="168" y2="138" class="hm-part"/>',
+      '<line x1="140" y1="150" x2="112" y2="188" class="hm-part"/>',
+      '<line x1="140" y1="150" x2="168" y2="188" class="hm-part"/>',
+    ];
+
+    $app.innerHTML =
+      '<section class="page hm-page animate-fade-up" aria-labelledby="hm-heading">' +
+        '<header class="game-topbar">' +
+          '<a href="#/games/hangman" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+          '<h1 id="hm-heading" class="sr-only">Hangman</h1>' +
+          '<span class="game-set-name">' + e(set.title) + '</span>' +
+          '<output class="game-score" aria-live="polite">' + score + ' correct</output>' +
+        '</header>' +
+        '<div class="hm-layout">' +
+          '<div class="hm-left">' +
+            '<svg class="hm-svg" viewBox="0 0 200 210" aria-hidden="true">' +
+              '<line x1="20" y1="200" x2="180" y2="200" class="hm-scaffold"/>' +
+              '<line x1="60" y1="200" x2="60" y2="10" class="hm-scaffold"/>' +
+              '<line x1="60" y1="10" x2="140" y2="10" class="hm-scaffold"/>' +
+              '<line x1="140" y1="10" x2="140" y2="52" class="hm-scaffold"/>' +
+              PARTS.slice(0, wrongCount).join('') +
+            '</svg>' +
+            '<p class="hm-lives">' + (MAX_WRONG - wrongCount) + ' wrong left</p>' +
+          '</div>' +
+          '<div class="hm-right">' +
+            '<p class="hm-def-label">Definition</p>' +
+            '<p class="hm-definition"></p>' +
+            '<div class="hm-word" aria-live="polite">' + displayWord + '</div>' +
+            (won || lost
+              ? '<div class="game-result ' + (won ? 'win' : 'lose') + '">' +
+                  '<p>' + (won ? 'Correct!' : 'The answer was: ' + e(card.term)) + '</p>' +
+                  '<button id="hm-next" type="button" class="btn btn-primary">Next Card</button>' +
+                '</div>'
+              : '<div class="hm-keyboard" role="group" aria-label="Letters">' +
+                  'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(function(l) {
+                    var g = guessed[l];
+                    var cls = g ? (termLetterSet[l] ? ' letter-correct' : ' letter-wrong') : '';
+                    return '<button class="letter-btn' + cls + '" data-l="' + l + '" ' + (g ? 'disabled' : '') + '>' + l + '</button>';
+                  }).join('') +
+                '</div>'
+            ) +
+          '</div>' +
+        '</div>' +
+      '</section>';
+
+    document.querySelector('.hm-definition').textContent = card.definition;
+
+    var kb = document.querySelector('.hm-keyboard');
+    if (kb) {
+      kb.addEventListener('click', function(ev) {
+        var btn = ev.target.closest('.letter-btn');
+        if (!btn || btn.disabled) return;
+        var l = btn.dataset.l;
+        guessed[l] = true;
+        if (!termLetterSet[l]) wrongCount++;
+        if (isWon()) score++;
+        render();
+      });
+    }
+
+    var nxt = document.getElementById('hm-next');
+    if (nxt) nxt.addEventListener('click', function() { deckIdx++; loadCard(); render(); });
+  }
+
+  render();
+}
+
+/* ══════════════════════════════════════
+   GAME: WORD SCRAMBLE
+══════════════════════════════════════ */
+
+function renderScramble(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || !set.cards.length) { navigate('#/games'); return; }
+  announce('Word Scramble');
+
+  var deck = shuffle(set.cards.slice());
+  var idx = 0, score = 0;
+  var tiles, answer, card;
+
+  function loadCard() {
+    card = deck[idx % deck.length];
+    if (idx > 0 && idx % deck.length === 0) deck = shuffle(set.cards.slice());
+    var nonSpace = card.term.toUpperCase().split('').filter(function(c) { return c !== ' '; });
+    tiles  = shuffle(nonSpace).map(function(c, i) { return { id: i, ch: c, used: false }; });
+    answer = [];
+  }
+
+  loadCard();
+
+  function termChars()    { return card.term.toUpperCase().split(''); }
+  function nonSpaceChars(){ return termChars().filter(function(c){ return c !== ' '; }); }
+  function isCorrect()    {
+    var ans = answer.map(function(t){ return t.ch; }).join('');
+    return ans === nonSpaceChars().join('');
+  }
+
+  function render() {
+    var correct = isCorrect();
+    var typedSoFar = answer.map(function(t){ return t.ch; });
+    var tIdx = 0;
+    var slots = termChars().map(function(ch) {
+      if (ch === ' ') return '<span class="sc-space"></span>';
+      var filled = tIdx < typedSoFar.length ? typedSoFar[tIdx++] : '';
+      return '<span class="sc-slot' + (filled ? ' filled' : '') + '">' + e(filled) + '</span>';
+    }).join('');
+
+    $app.innerHTML =
+      '<section class="page animate-fade-up" aria-labelledby="sc-heading">' +
+        '<header class="game-topbar">' +
+          '<a href="#/games/scramble" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+          '<h1 id="sc-heading" class="sr-only">Word Scramble</h1>' +
+          '<span class="game-set-name">' + e(set.title) + '</span>' +
+          '<output class="game-score" aria-live="polite">' + score + ' correct</output>' +
+        '</header>' +
+        '<article class="sc-card card">' +
+          '<p class="hm-def-label">Definition</p>' +
+          '<p class="sc-definition"></p>' +
+          '<div class="sc-answer-row" aria-live="polite">' + slots + '</div>' +
+          '<div class="sc-tiles" id="sc-tiles" role="group" aria-label="Available letters">' +
+            tiles.map(function(t) {
+              return '<button class="sc-tile' + (t.used ? ' used' : '') + '" data-id="' + t.id + '" ' + (t.used || correct ? 'disabled' : '') + '>' + t.ch + '</button>';
+            }).join('') +
+          '</div>' +
+          '<div class="sc-actions">' +
+            '<button id="sc-undo" class="btn btn-ghost"' + (answer.length === 0 ? ' disabled' : '') + '>Undo</button>' +
+            '<button id="sc-skip" class="btn btn-ghost">Skip</button>' +
+            (correct ? '<button id="sc-next" class="btn btn-primary">Next</button>' : '') +
+          '</div>' +
+          (correct ? '<p class="sc-success">Correct!</p>' : '') +
+        '</article>' +
+      '</section>';
+
+    document.querySelector('.sc-definition').textContent = card.definition;
+
+    document.getElementById('sc-tiles').addEventListener('click', function(ev) {
+      var btn = ev.target.closest('.sc-tile');
+      if (!btn || btn.disabled || correct) return;
+      var id  = parseInt(btn.dataset.id, 10);
+      var tile = tiles.find(function(t){ return t.id === id; });
+      if (!tile || tile.used) return;
+      tile.used = true;
+      answer.push(tile);
+      if (isCorrect()) score++;
+      render();
+    });
+
+    var undoBtn = document.getElementById('sc-undo');
+    if (undoBtn) undoBtn.addEventListener('click', function() {
+      if (!answer.length) return;
+      tiles.find(function(t){ return t.id === answer[answer.length-1].id; }).used = false;
+      answer.pop(); render();
+    });
+
+    document.getElementById('sc-skip').addEventListener('click', function() { idx++; loadCard(); render(); });
+    var nextBtn = document.getElementById('sc-next');
+    if (nextBtn) nextBtn.addEventListener('click', function() { idx++; loadCard(); render(); });
+  }
+
+  render();
+}
+
+/* ══════════════════════════════════════
+   GAME: TRUE OR FALSE
+══════════════════════════════════════ */
+
+function renderTrueFalse(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || set.cards.length < 2) { navigate('#/games'); return; }
+  announce('True or False');
+
+  var shuffled = shuffle(set.cards.slice());
+  var qs = [];
+  shuffled.forEach(function(card, i) {
+    qs.push({ term: card.term, def: card.definition, isTrue: true });
+    var other = shuffled[(i + 1) % shuffled.length];
+    qs.push({ term: card.term, def: other.definition, isTrue: false });
+  });
+  qs = shuffle(qs).slice(0, Math.min(qs.length, 20));
+
+  var idx = 0, score = 0, answered = null;
+
+  function render() {
+    if (idx >= qs.length) { showDone(); return; }
+    var q = qs[idx];
+
+    $app.innerHTML =
+      '<section class="page animate-fade-up" aria-labelledby="tf-heading">' +
+        '<header class="game-topbar">' +
+          '<a href="#/games/truefalse" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+          '<h1 id="tf-heading" class="sr-only">True or False</h1>' +
+          '<span class="game-set-name">' + e(set.title) + '</span>' +
+          '<output class="game-score" aria-live="polite">' + score + ' / ' + idx + '</output>' +
+        '</header>' +
+        '<progress value="' + idx + '" max="' + qs.length + '" class="mb-3" aria-label="Progress"></progress>' +
+        '<article class="tf-card card">' +
+          '<p class="tf-term"></p>' +
+          '<p class="tf-connector">means</p>' +
+          '<p class="tf-definition"></p>' +
+          (answered !== null
+            ? '<p class="tf-result ' + (answered === q.isTrue ? 'tf-correct' : 'tf-wrong') + '" aria-live="polite">' +
+                (answered === q.isTrue ? 'Correct!' : 'Wrong — it was ' + (q.isTrue ? 'true' : 'false')) + '</p>' +
+              '<button id="tf-next" type="button" class="btn btn-primary tf-next-btn">' + (idx + 1 >= qs.length ? 'See Results' : 'Next') + '</button>'
+            : '<div class="tf-buttons" role="group" aria-label="True or false?">' +
+                '<button class="tf-btn tf-true"  data-ans="true">True</button>' +
+                '<button class="tf-btn tf-false" data-ans="false">False</button>' +
+              '</div>'
+          ) +
+        '</article>' +
+      '</section>';
+
+    document.querySelector('.tf-term').textContent = q.term;
+    document.querySelector('.tf-definition').textContent = q.def;
+
+    if (answered === null) {
+      document.querySelector('.tf-buttons').addEventListener('click', function(ev) {
+        var btn = ev.target.closest('[data-ans]');
+        if (!btn) return;
+        answered = btn.dataset.ans === 'true';
+        if (answered === q.isTrue) score++;
+        render();
+      });
+    } else {
+      document.getElementById('tf-next').addEventListener('click', function() {
+        idx++; answered = null; render();
+      });
+    }
+  }
+
+  function showDone() {
+    var pct = Math.round((score / qs.length) * 100);
+    $app.innerHTML =
+      '<section class="page test-done animate-fade-up" aria-labelledby="tf-done-heading">' +
+        '<article class="card test-results">' +
+          '<p class="result-label">' + (pct === 100 ? 'Perfect!' : pct >= 70 ? 'Nice work.' : 'Keep at it.') + '</p>' +
+          '<h1 id="tf-done-heading">Done!</h1>' +
+          '<p class="test-score-pill" style="background:' + (pct>=70?'var(--green-dim)':'var(--red-dim)') + ';color:' + (pct>=70?'var(--green)':'var(--red)') + '">' + score + ' / ' + qs.length + ' correct &mdash; ' + pct + '%</p>' +
+          '<nav class="test-done-actions">' +
+            '<button id="tf-restart" class="btn btn-primary btn-lg">Play Again</button>' +
+            '<a href="#/set/' + e(setId) + '" class="btn btn-ghost">Back to Set</a>' +
+          '</nav>' +
+        '</article>' +
+      '</section>';
+    document.getElementById('tf-restart').addEventListener('click', function() { renderTrueFalse(setId); });
+  }
+
+  render();
+}
+
+/* ══════════════════════════════════════
+   GAME: SURVIVAL
+══════════════════════════════════════ */
+
+function renderSurvival(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || set.cards.length < 2) { navigate('#/games'); return; }
+  announce('Survival');
+
+  var HS_KEY = 'hs-sv-' + setId;
+  var best   = parseInt(localStorage.getItem(HS_KEY) || '0', 10);
+  var lives  = 3, score = 0, selected = null;
+  var pool   = shuffle(set.cards.slice()), poolIdx = 0;
+
+  function nextQ() {
+    if (poolIdx >= pool.length) { pool = shuffle(set.cards.slice()); poolIdx = 0; }
+    var card  = pool[poolIdx++];
+    var wrong = shuffle(set.cards.filter(function(c){ return c.id !== card.id; })).slice(0,3).map(function(c){ return c.definition; });
+    return { term: card.term, choices: shuffle(wrong.concat(card.definition)), correct: card.definition };
+  }
+
+  var q = nextQ();
+
+  function render() {
+    $app.innerHTML =
+      '<section class="page sv-page animate-fade-up" aria-labelledby="sv-heading">' +
+        '<header class="game-topbar">' +
+          '<a href="#/games/survival" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+          '<h1 id="sv-heading" class="sr-only">Survival</h1>' +
+          '<span class="game-set-name">' + e(set.title) + '</span>' +
+          '<div class="sv-lives" aria-label="Lives: ' + lives + '">' +
+            [0,1,2].map(function(i){ return '<span class="sv-life' + (i < lives ? ' alive' : '') + '" aria-hidden="true"></span>'; }).join('') +
+          '</div>' +
+        '</header>' +
+        '<div class="sv-score-row">' +
+          '<output class="sv-score">' + score + '</output>' +
+          '<span class="sv-score-label">correct</span>' +
+          (best > 0 ? '<span class="sv-high-score">Best: ' + best + '</span>' : '') +
+        '</div>' +
+        '<article class="card test-question">' +
+          '<p class="test-q-label">Definition of:</p>' +
+          '<h2 class="test-q-text" id="sv-q"></h2>' +
+          '<div class="test-choices" id="sv-choices" role="group" aria-label="Choices"></div>' +
+        '</article>' +
+      '</section>';
+
+    document.getElementById('sv-q').textContent = q.term;
+
+    var choicesEl = document.getElementById('sv-choices');
+    q.choices.forEach(function(choice, ci) {
+      var btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'choice-btn';
+      var ltr = document.createElement('span'); ltr.className = 'choice-letter'; ltr.setAttribute('aria-hidden','true'); ltr.textContent = String.fromCharCode(65+ci);
+      var txt = document.createElement('span'); txt.textContent = choice;
+      btn.appendChild(ltr); btn.appendChild(txt);
+      btn.addEventListener('click', function() {
+        if (selected !== null) return;
+        selected = choice;
+        var ok = choice === q.correct;
+        if (ok) { score++; if (score > best) { best = score; localStorage.setItem(HS_KEY, best); } }
+        else lives--;
+        choicesEl.querySelectorAll('.choice-btn').forEach(function(b) {
+          var t = b.querySelector('span:last-child').textContent;
+          if (t === q.correct) b.classList.add('correct');
+          if (t === selected && !ok) b.classList.add('wrong');
+          b.disabled = true;
+        });
+        if (lives <= 0) { setTimeout(showOver, 900); }
+        else { setTimeout(function(){ selected = null; q = nextQ(); render(); }, 900); }
+      });
+      choicesEl.appendChild(btn);
+    });
+  }
+
+  function showOver() {
+    $app.innerHTML =
+      '<section class="page test-done animate-fade-up" aria-labelledby="sv-over">' +
+        '<article class="card test-results">' +
+          '<p class="result-label">Game Over</p>' +
+          '<h1 id="sv-over">' + score + ' correct</h1>' +
+          '<p class="test-score-pill" style="background:var(--accent-dim);color:var(--accent)">Best: ' + best + '</p>' +
+          '<nav class="test-done-actions">' +
+            '<button id="sv-restart" class="btn btn-primary btn-lg">Play Again</button>' +
+            '<a href="#/set/' + e(setId) + '" class="btn btn-ghost">Back to Set</a>' +
+          '</nav>' +
+        '</article>' +
+      '</section>';
+    document.getElementById('sv-restart').addEventListener('click', function() { renderSurvival(setId); });
+  }
+
+  render();
+}
+
+/* ══════════════════════════════════════
+   GAME: GRAVITY
+══════════════════════════════════════ */
+
+function renderGravity(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || set.cards.length < 2) { navigate('#/games'); return; }
+  announce('Gravity');
+
+  var lives = 3, score = 0, speed = 9, gone = false;
+  var pool = shuffle(set.cards.slice()), poolIdx = 0;
+  var fallTimer = null, current;
+
+  function nextCard() {
+    if (poolIdx >= pool.length) { pool = shuffle(set.cards.slice()); poolIdx = 0; }
+    return pool[poolIdx++];
+  }
+
+  current = nextCard();
+
+  $app.innerHTML =
+    '<section class="page gv-page animate-fade-up" aria-labelledby="gv-heading">' +
+      '<header class="game-topbar">' +
+        '<a href="#/games/gravity" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+        '<h1 id="gv-heading" class="sr-only">Gravity</h1>' +
+        '<span class="game-set-name">' + e(set.title) + '</span>' +
+        '<div class="sv-lives" id="gv-lives" aria-label="Lives">' +
+          [0,1,2].map(function(i){ return '<span class="sv-life alive" aria-hidden="true"></span>'; }).join('') +
+        '</div>' +
+      '</header>' +
+      '<output class="gv-score" id="gv-score" aria-live="polite">0</output>' +
+      '<div class="gv-arena" id="gv-arena">' +
+        '<div class="gv-card" id="gv-card"><p class="gv-def" id="gv-def"></p></div>' +
+      '</div>' +
+      '<form class="gv-form" id="gv-form">' +
+        '<label for="gv-input" class="sr-only">Type the term</label>' +
+        '<input id="gv-input" type="text" class="input gv-input" placeholder="Type the term..." autocomplete="off" />' +
+        '<button type="submit" class="btn btn-primary">Check</button>' +
+      '</form>' +
+    '</section>';
+
+  var defEl  = document.getElementById('gv-def');
+  var cardEl = document.getElementById('gv-card');
+  var inputEl= document.getElementById('gv-input');
+  var scoreEl= document.getElementById('gv-score');
+  var livesEl= document.getElementById('gv-lives');
+
+  function updateLives() {
+    livesEl.innerHTML = [0,1,2].map(function(i){ return '<span class="sv-life' + (i<lives?' alive':'') + '" aria-hidden="true"></span>'; }).join('');
+  }
+
+  function startFall() {
+    if (gone) return;
+    defEl.textContent = current.definition;
+    cardEl.style.animation = 'none';
+    void cardEl.offsetHeight;
+    cardEl.style.animation = 'gv-fall ' + speed + 's linear forwards';
+    inputEl.value = ''; inputEl.focus();
+    fallTimer = setTimeout(function() { missCard(); }, speed * 1000);
+  }
+
+  function missCard() {
+    if (gone) return;
+    lives--; updateLives();
+    if (lives <= 0) { gone = true; endGame(); return; }
+    current = nextCard();
+    speed = Math.max(3, speed - 0.4);
+    startFall();
+  }
+
+  document.getElementById('gv-form').addEventListener('submit', function(ev) {
+    ev.preventDefault();
+    if (gone) return;
+    var val = inputEl.value.trim();
+    if (!val) return;
+    if (val.toLowerCase() === current.term.toLowerCase()) {
+      clearTimeout(fallTimer);
+      score++; scoreEl.textContent = score;
+      speed = Math.max(3, speed - 0.6);
+      current = nextCard();
+      startFall();
+    } else {
+      inputEl.value = '';
+      inputEl.classList.add('input-wrong');
+      setTimeout(function() { inputEl.classList.remove('input-wrong'); }, 500);
+    }
+  });
+
+  window.addEventListener('hashchange', function cleanup() {
+    clearTimeout(fallTimer); gone = true;
+    window.removeEventListener('hashchange', cleanup);
+  }, { once: true });
+
+  function endGame() {
+    clearTimeout(fallTimer);
+    $app.innerHTML =
+      '<section class="page test-done animate-fade-up" aria-labelledby="gv-over">' +
+        '<article class="card test-results">' +
+          '<p class="result-label">Game Over</p>' +
+          '<h1 id="gv-over">You caught ' + score + ' card' + (score!==1?'s':'') + '</h1>' +
+          '<nav class="test-done-actions">' +
+            '<button id="gv-restart" class="btn btn-primary btn-lg">Play Again</button>' +
+            '<a href="#/set/' + e(setId) + '" class="btn btn-ghost">Back to Set</a>' +
+          '</nav>' +
+        '</article>' +
+      '</section>';
+    document.getElementById('gv-restart').addEventListener('click', function() { renderGravity(setId); });
+  }
+
+  startFall();
+}
+
+/* ══════════════════════════════════════
+   GAME: LIGHTNING RUN
+══════════════════════════════════════ */
+
+function renderLightning(setId) {
+  var set = Storage.getOne(setId);
+  if (!set || !set.cards.length) { navigate('#/games'); return; }
+  announce('Lightning Run');
+
+  var HS_KEY  = 'hs-ln-' + setId;
+  var bestRaw = localStorage.getItem(HS_KEY);
+  var bestMs  = bestRaw ? parseInt(bestRaw, 10) : null;
+
+  var deck  = shuffle(set.cards.slice());
+  var idx   = 0, score = 0;
+  var start = Date.now();
+  var tick  = null;
+
+  function render() {
+    clearInterval(tick);
+    if (idx >= deck.length) { showDone(); return; }
+    var card = deck[idx];
+
+    $app.innerHTML =
+      '<section class="page ln-page animate-fade-up" aria-labelledby="ln-heading">' +
+        '<header class="game-topbar">' +
+          '<a href="#/games/lightning" class="btn btn-ghost btn-sm">&larr; Back</a>' +
+          '<h1 id="ln-heading" class="sr-only">Lightning Run</h1>' +
+          '<span class="game-set-name">' + e(set.title) + '</span>' +
+          '<output class="ln-timer" id="ln-timer" aria-live="off">0.0s</output>' +
+        '</header>' +
+        '<progress value="' + idx + '" max="' + deck.length + '" class="mb-3" aria-label="Card ' + (idx+1) + ' of ' + deck.length + '"></progress>' +
+        '<article class="ln-card card">' +
+          '<p class="hm-def-label">' + (idx+1) + ' / ' + deck.length + '</p>' +
+          '<h2 class="ln-term"></h2>' +
+          '<div class="ln-divider" aria-hidden="true"></div>' +
+          '<p class="ln-definition"></p>' +
+          '<div class="ln-actions" role="group" aria-label="Did you know it?">' +
+            '<button id="ln-miss" type="button" class="btn fc-miss-btn">Missed it</button>' +
+            '<button id="ln-got"  type="button" class="btn fc-got-btn">Got it</button>' +
+          '</div>' +
+        '</article>' +
+      '</section>';
+
+    document.querySelector('.ln-term').textContent = card.term;
+    document.querySelector('.ln-definition').textContent = card.definition;
+
+    tick = setInterval(function() {
+      var el = document.getElementById('ln-timer');
+      if (el) el.textContent = ((Date.now() - start) / 1000).toFixed(1) + 's';
+    }, 100);
+
+    function advance(gotIt) {
+      clearInterval(tick);
+      if (gotIt) score++;
+      idx++; render();
+    }
+
+    document.getElementById('ln-got').addEventListener('click', function() { advance(true); });
+    document.getElementById('ln-miss').addEventListener('click', function() { advance(false); });
+  }
+
+  function showDone() {
+    var elapsed = Date.now() - start;
+    var isNew   = bestMs === null || elapsed < bestMs;
+    if (isNew) localStorage.setItem(HS_KEY, elapsed.toString());
+    var pct = Math.round((score / deck.length) * 100);
+
+    $app.innerHTML =
+      '<section class="page test-done animate-fade-up" aria-labelledby="ln-done">' +
+        '<article class="card test-results">' +
+          '<p class="result-label">' + (isNew ? 'New personal best!' : 'Run complete.') + '</p>' +
+          '<h1 id="ln-done">Lightning Run</h1>' +
+          '<div class="ln-final-stats">' +
+            '<div class="ln-stat"><output>' + (elapsed/1000).toFixed(1) + 's</output><span>Time</span></div>' +
+            '<div class="ln-stat"><output>' + score + '/' + deck.length + '</output><span>Correct</span></div>' +
+            '<div class="ln-stat"><output>' + pct + '%</output><span>Accuracy</span></div>' +
+            (bestMs && !isNew ? '<div class="ln-stat"><output>' + (bestMs/1000).toFixed(1) + 's</output><span>Best</span></div>' : '') +
+          '</div>' +
+          '<nav class="test-done-actions">' +
+            '<button id="ln-restart" class="btn btn-primary btn-lg">Run Again</button>' +
+            '<a href="#/set/' + e(setId) + '" class="btn btn-ghost">Back to Set</a>' +
+          '</nav>' +
+        '</article>' +
+      '</section>';
+    document.getElementById('ln-restart').addEventListener('click', function() { renderLightning(setId); });
   }
 
   render();

@@ -1,4 +1,4 @@
-/* QuizForge — AI Integration (Anthropic Claude API) */
+/* QuizForge — AI Integration (Google Gemini API) */
 var AI = (function () {
   var KEY_STORE = 'qf-api-key';
 
@@ -12,10 +12,9 @@ var AI = (function () {
     },
 
     /**
-     * Generate flashcard pairs via Claude.
-     * Requires the user's Anthropic API key stored in localStorage.
-     * NOTE: Calling the API directly from a browser exposes the key in
-     * DevTools — only use a key with a spend limit set for personal use.
+     * Generate flashcard pairs via Google Gemini.
+     * Free tier: 1,500 requests/day, no credit card required.
+     * Get a key at https://aistudio.google.com/
      *
      * @param {string} topic   Natural-language topic description
      * @param {number} count   Number of cards to generate (3–20)
@@ -25,14 +24,14 @@ var AI = (function () {
       var key = this.getKey();
       if (!key) {
         return Promise.reject(
-          new Error('No API key configured. Click ⚙ in the navbar to add your Anthropic API key.')
+          new Error('No API key set. Click "API Key" in the navbar to add your Google Gemini key.')
         );
       }
 
       var prompt = [
         'Generate exactly ' + count + ' flashcard pairs about: "' + topic + '".',
         '',
-        'Return ONLY a valid JSON array — no explanation, no markdown, no other text:',
+        'Return ONLY a valid JSON array — no explanation, no markdown fences, no other text:',
         '[{"term": "...", "definition": "..."}, ...]',
         '',
         'Requirements:',
@@ -42,35 +41,44 @@ var AI = (function () {
         '- Be accurate and educational',
       ].join('\n');
 
-      return fetch('https://api.anthropic.com/v1/messages', {
+      var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='
+        + encodeURIComponent(key);
+
+      return fetch(url, {
         method: 'POST',
-        headers: {
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2048,
-          messages: [{ role: 'user', content: prompt }],
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       })
         .then(function (res) {
           if (!res.ok) {
             return res.json().catch(function () { return {}; }).then(function (err) {
-              throw new Error((err.error && err.error.message) || ('API error ' + res.status));
+              throw new Error(
+                (err.error && err.error.message) || ('API error ' + res.status)
+              );
             });
           }
           return res.json();
         })
         .then(function (data) {
-          var text = data.content[0].text.trim();
+          var part = data.candidates &&
+                     data.candidates[0] &&
+                     data.candidates[0].content &&
+                     data.candidates[0].content.parts &&
+                     data.candidates[0].content.parts[0];
+
+          if (!part || !part.text) throw new Error('Empty response from Gemini. Please try again.');
+
+          /* Strip markdown code fences if the model wrapped its output */
+          var text = part.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+
           var match = text.match(/\[[\s\S]*\]/);
-          if (!match) throw new Error('AI returned an unexpected format. Please try again.');
+          if (!match) throw new Error('Unexpected response format. Please try again.');
 
           var cards = JSON.parse(match[0]);
-          if (!Array.isArray(cards)) throw new Error('Invalid response — expected an array.');
+          if (!Array.isArray(cards)) throw new Error('Invalid response — expected a JSON array.');
 
           return cards
             .filter(function (c) { return c.term && c.definition; })

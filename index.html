@@ -24,8 +24,8 @@
       </ul>
 
       <div class="nav-actions">
-        <button id="settings-btn" class="btn btn-ghost btn-icon" aria-label="Open API settings">⚙</button>
-        <a href="#/create" class="btn btn-primary btn-sm">+ Create Set</a>
+        <button id="settings-btn" class="btn btn-ghost btn-sm" aria-label="Open API settings">API Key</button>
+        <a href="#/create" class="btn btn-primary btn-sm">New Set</a>
       </div>
     </nav>
   </header>
@@ -33,19 +33,27 @@
   <!-- ── Live region for page-change announcements ── -->
   <div id="page-announcer" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
-  <!-- ── Main Content (pages rendered here) ── -->
+  <!-- ── Main Content ── -->
   <main id="app" role="main"></main>
 
+  <!-- ── Mobile Bottom Nav ── -->
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a href="#/"        class="mobile-nav-link" aria-label="Home">Home</a>
+    <a href="#/library" class="mobile-nav-link" aria-label="Library">Library</a>
+    <a href="#/games"   class="mobile-nav-link" aria-label="Games">Games</a>
+    <a href="#/create"  class="mobile-nav-link mobile-nav-create" aria-label="Create new set">+ New</a>
+  </nav>
+
   <!-- ════════════════════════════════════════
-       ── Dialogs (always in DOM, shown on demand) ──
+       Dialogs — always in DOM, shown on demand
        ════════════════════════════════════════ -->
 
   <!-- AI Generator Dialog -->
   <dialog id="ai-dialog" aria-labelledby="ai-dialog-title" aria-describedby="ai-dialog-desc">
     <article class="dialog-inner">
       <header class="dialog-header">
-        <h2 id="ai-dialog-title">✨ Generate with AI</h2>
-        <button type="button" id="ai-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">✕</button>
+        <h2 id="ai-dialog-title">Generate with AI</h2>
+        <button type="button" id="ai-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">&#10005;</button>
       </header>
 
       <div class="dialog-body">
@@ -59,7 +67,7 @@
             id="ai-topic"
             class="input"
             rows="3"
-            placeholder="e.g. The French Revolution, JavaScript async/await, types of pasta, 90s hip-hop albums…"
+            placeholder="e.g. The French Revolution, JavaScript async/await, types of pasta, 90s hip-hop albums..."
             required
             aria-required="true"
           ></textarea>
@@ -75,7 +83,7 @@
 
       <footer class="dialog-footer">
         <button type="button" id="ai-cancel" class="btn btn-ghost">Cancel</button>
-        <button type="button" id="ai-generate" class="btn btn-primary">✨ Generate</button>
+        <button type="button" id="ai-generate" class="btn btn-primary">Generate</button>
       </footer>
     </article>
   </dialog>
@@ -84,23 +92,23 @@
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <article class="dialog-inner">
       <header class="dialog-header">
-        <h2 id="settings-title">⚙ API Settings</h2>
-        <button type="button" id="settings-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">✕</button>
+        <h2 id="settings-title">API Settings</h2>
+        <button type="button" id="settings-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">&#10005;</button>
       </header>
 
       <div class="dialog-body">
         <div class="field">
-          <label for="api-key-input">Anthropic API Key</label>
-          <input id="api-key-input" type="password" class="input" placeholder="sk-ant-…" autocomplete="off" />
+          <label for="api-key-input">Google Gemini API Key</label>
+          <input id="api-key-input" type="password" class="input" placeholder="AIza..." autocomplete="off" />
           <p class="field-hint">
-            Stored only in your browser's localStorage — never sent anywhere except Anthropic's API.
-            <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Get a key →</a>
+            Free — no credit card required. Stored only in your browser's localStorage.
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a free key at aistudio.google.com</a>
           </p>
         </div>
 
         <div role="note" class="api-warning">
-          <strong>Security note:</strong> Calling an API directly from a browser exposes your key to anyone
-          who inspects the page. Only use a key with a spend limit set for personal use.
+          <strong>Note:</strong> Your key is stored locally and only sent directly to Google's API.
+          The free tier allows 1,500 requests per day.
         </div>
       </div>
 
@@ -127,7 +135,6 @@
     </article>
   </dialog>
 
-  <!-- ── Scripts (no build step, no modules) ── -->
   <script src="js/storage.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
