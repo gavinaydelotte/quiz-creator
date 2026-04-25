@@ -7,8 +7,8 @@
   --border:   #2a2a2a;
   --border-2: #3d3d3d;
 
-  --accent:     #f97316;   /* orange — one colour, used sparingly */
-  --accent-dim: rgba(249,115,22,0.10);
+  --accent:     #39ff14;   /* neon green */
+  --accent-dim: rgba(57,255,20,0.10);
 
   --text:   #f0f0f0;
   --text-2: #888888;
@@ -156,7 +156,7 @@ h3 { font-size: 1rem;   font-weight: 600; }
 }
 
 .btn-primary { background: var(--accent); color: #111; }
-.btn-primary:hover { background: #fb923c; }
+.btn-primary:hover { background: #57ff3a; }
 
 .btn-ghost {
   background: transparent;
@@ -1351,7 +1351,7 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
   font-weight: 700;
   border-right: none;
 }
-.mobile-nav-create:hover { background: #fb923c !important; }
+.mobile-nav-create:hover { background: #57ff3a !important; }
 
 /* ══════════════════════════════════════
    RESPONSIVE
