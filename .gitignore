@@ -1,0 +1,10 @@
+# Firebase credentials — never commit this
+js/firebase-config.js
+
+# Firebase
+.firebase/
+firebase-debug.log
+
+# OS
+.DS_Store
+Thumbs.db
