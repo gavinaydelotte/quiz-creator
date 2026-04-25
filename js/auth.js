@@ -1,4 +1,4 @@
-/* QuizForge — Firebase Authentication */
+/* FlashForge — Firebase Authentication */
 var Auth = (function () {
   var USER_KEY = 'qf-user';
   var _onChange = null;

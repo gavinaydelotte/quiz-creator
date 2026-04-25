@@ -1,4 +1,4 @@
-/* QuizForge — Data Layer (localStorage + Firestore sync) */
+/* FlashForge — Data Layer (localStorage + Firestore sync) */
 var Storage = (function () {
   var KEY = 'qf-sets';
 

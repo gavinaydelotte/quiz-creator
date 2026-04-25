@@ -1,4 +1,4 @@
-/* QuizForge — AI Integration (Google Gemini API) */
+/* FlashForge — AI Integration (Google Gemini API) */
 var AI = (function () {
   var KEY_STORE = 'qf-api-key';
 

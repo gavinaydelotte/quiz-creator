@@ -1,4 +1,4 @@
-/* QuizForge — Firestore Sync
+/* FlashForge — Firestore Sync
  * Keeps localStorage and Firestore in sync when a user is signed in.
  * All app logic uses localStorage (fast, sync). Firestore is updated in the background.
  */

@@ -1,4 +1,4 @@
-/* QuizForge — Main Application (router + all pages) */
+/* FlashForge — Main Application (router + all pages) */
 
 /* ══════════════════════════════════════
    HELPERS
