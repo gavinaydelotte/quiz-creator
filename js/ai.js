@@ -41,7 +41,7 @@ var AI = (function () {
         '- Be accurate and educational',
       ].join('\n');
 
-      var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='
+      var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='
         + encodeURIComponent(key);
 
       return fetch(url, {

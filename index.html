@@ -6,6 +6,10 @@
   <meta name="description" content="QuizForge — create flashcard sets, study smart, and play games for any topic" />
   <title>QuizForge</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -24,7 +28,9 @@
       </ul>
 
       <div class="nav-actions">
-        <button id="settings-btn" class="btn btn-ghost btn-sm" aria-label="Open API settings">API Key</button>
+        <button id="settings-btn" class="btn btn-ghost btn-sm" aria-label="Open settings">Settings</button>
+        <!-- Auth nav — populated by JS -->
+        <div id="auth-nav" class="auth-nav" aria-live="polite"></div>
         <a href="#/create" class="btn btn-primary btn-sm">New Set</a>
       </div>
     </nav>
@@ -45,7 +51,7 @@
   </nav>
 
   <!-- ════════════════════════════════════════
-       Dialogs — always in DOM, shown on demand
+       Dialogs
        ════════════════════════════════════════ -->
 
   <!-- AI Generator Dialog -->
@@ -58,7 +64,7 @@
 
       <div class="dialog-body">
         <p id="ai-dialog-desc">
-          Describe any topic and Claude AI will generate flashcard pairs for you — academic or not.
+          Describe any topic and Gemini AI will generate flashcard pairs for you — academic or not.
         </p>
 
         <div class="field">
@@ -88,33 +94,32 @@
     </article>
   </dialog>
 
-  <!-- API Key Settings Dialog -->
+  <!-- Settings Dialog -->
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <article class="dialog-inner">
       <header class="dialog-header">
-        <h2 id="settings-title">API Settings</h2>
+        <h2 id="settings-title">Settings</h2>
         <button type="button" id="settings-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">&#10005;</button>
       </header>
 
       <div class="dialog-body">
+
+        <!-- Gemini API Key -->
         <div class="field">
-          <label for="api-key-input">Google Gemini API Key</label>
+          <label for="api-key-input">Gemini API Key</label>
           <input id="api-key-input" type="password" class="input" placeholder="AIza..." autocomplete="off" />
           <p class="field-hint">
-            Free — no credit card required. Stored only in your browser's localStorage.
+            Free — no credit card required.
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a free key at aistudio.google.com</a>
           </p>
         </div>
 
-        <div role="note" class="api-warning">
-          <strong>Note:</strong> Your key is stored locally and only sent directly to Google's API.
-          The free tier allows 1,500 requests per day.
-        </div>
+
       </div>
 
       <footer class="dialog-footer">
         <button type="button" id="settings-cancel" class="btn btn-ghost">Cancel</button>
-        <button type="button" id="settings-save" class="btn btn-primary">Save Key</button>
+        <button type="button" id="settings-save" class="btn btn-primary">Save</button>
       </footer>
     </article>
   </dialog>
@@ -135,7 +140,10 @@
     </article>
   </dialog>
 
+  <script src="js/firebase-config.js"></script>
   <script src="js/storage.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
 </body>

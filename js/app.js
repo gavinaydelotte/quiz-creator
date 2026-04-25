@@ -133,6 +133,110 @@ function openAIDialog(cb) {
   setTimeout(function () { document.getElementById('ai-topic').focus(); }, 50);
 }
 
+/* ══════════════════════════════════════
+   AUTH NAV
+══════════════════════════════════════ */
+
+function updateAuthNav() {
+  var container = document.getElementById('auth-nav');
+  if (!container) return;
+  container.innerHTML = '';
+
+  var user = Auth.getUser();
+
+  if (!user) {
+    var signinBtn = document.createElement('button');
+    signinBtn.type = 'button';
+    signinBtn.className = 'google-signin-btn';
+    signinBtn.setAttribute('aria-label', 'Sign in with Google');
+    signinBtn.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">' +
+        '<path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908C16.658 14.013 17.64 11.706 17.64 9.2z" fill="#4285F4"/>' +
+        '<path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>' +
+        '<path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>' +
+        '<path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>' +
+      '</svg>' +
+      '<span>Sign in with Google</span>';
+    signinBtn.addEventListener('click', function () { Auth.signIn(); });
+    container.appendChild(signinBtn);
+    return;
+  }
+
+  /* Signed in — show avatar + dropdown */
+  var wrapper = document.createElement('div');
+  wrapper.className = 'auth-nav-wrapper';
+
+  var avatarBtn = document.createElement('button');
+  avatarBtn.type = 'button';
+  avatarBtn.className = 'auth-avatar-btn';
+  avatarBtn.setAttribute('aria-expanded', 'false');
+  avatarBtn.setAttribute('aria-label', user.name + ' — account menu');
+
+  if (user.picture) {
+    var img = document.createElement('img');
+    img.src = user.picture;
+    img.alt = user.name;
+    img.className = 'auth-avatar';
+    img.referrerPolicy = 'no-referrer';
+    avatarBtn.appendChild(img);
+  } else {
+    var init = document.createElement('span');
+    init.className = 'auth-avatar-initial';
+    init.textContent = (user.name || '?').charAt(0);
+    avatarBtn.appendChild(init);
+  }
+
+  var dropdown = document.createElement('div');
+  dropdown.className = 'auth-dropdown';
+  dropdown.hidden = true;
+  dropdown.setAttribute('role', 'menu');
+
+  var info = document.createElement('div');
+  info.className = 'auth-dropdown-info';
+  var nameEl = document.createElement('p');
+  nameEl.className = 'auth-dropdown-name';
+  nameEl.textContent = user.name;
+  var emailEl = document.createElement('p');
+  emailEl.className = 'auth-dropdown-email';
+  emailEl.textContent = user.email;
+  info.appendChild(nameEl);
+  info.appendChild(emailEl);
+
+  var signoutBtn = document.createElement('button');
+  signoutBtn.type = 'button';
+  signoutBtn.className = 'auth-dropdown-signout';
+  signoutBtn.textContent = 'Sign out';
+  signoutBtn.setAttribute('role', 'menuitem');
+  signoutBtn.addEventListener('click', function () {
+    dropdown.hidden = true;
+    Auth.signOut();
+  });
+
+  dropdown.appendChild(info);
+  dropdown.appendChild(signoutBtn);
+
+  /* Toggle dropdown */
+  avatarBtn.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    var open = !dropdown.hidden;
+    dropdown.hidden = open;
+    avatarBtn.setAttribute('aria-expanded', !open);
+  });
+
+  /* Close on outside click */
+  document.addEventListener('click', function closeMenu(ev) {
+    if (!wrapper.contains(ev.target)) {
+      dropdown.hidden = true;
+      avatarBtn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('click', closeMenu);
+    }
+  });
+
+  wrapper.appendChild(avatarBtn);
+  wrapper.appendChild(dropdown);
+  container.appendChild(wrapper);
+}
+
 function initDialogs() {
   /* ── Settings dialog ── */
   var settingsDialog = document.getElementById('settings-dialog');
@@ -145,7 +249,7 @@ function initDialogs() {
   document.getElementById('settings-save').addEventListener('click', function () {
     AI.setKey(document.getElementById('api-key-input').value);
     settingsDialog.close();
-    showToast('API key saved!');
+    showToast('Settings saved');
   });
 
   /* ── AI generator dialog ── */
@@ -490,7 +594,7 @@ function renderCreate(editId) {
     : [makeNewCard(), makeNewCard()];
 
   function makeNewCard() {
-    return { id: 'c-' + Date.now() + '-' + Math.random(), term: '', definition: '' };
+    return { id: 'c' + Date.now() + Math.floor(Math.random() * 1e6), term: '', definition: '' };
   }
 
   $app.innerHTML =
@@ -579,8 +683,8 @@ function renderCreate(editId) {
         '</div>';
 
       /* Sync inputs to cards array */
-      li.querySelector('#term-' + card.id).addEventListener('input', function (ev) { card.term = ev.target.value; });
-      li.querySelector('#def-'  + card.id).addEventListener('input', function (ev) { card.definition = ev.target.value; });
+      li.querySelector('[id="term-' + card.id + '"]').addEventListener('input', function (ev) { card.term = ev.target.value; });
+      li.querySelector('[id="def-'  + card.id + '"]').addEventListener('input', function (ev) { card.definition = ev.target.value; });
 
       /* Move */
       li.querySelectorAll('[data-move]').forEach(function (btn) {
@@ -2348,4 +2452,11 @@ window.addEventListener('hashchange', handleRoute);
 document.addEventListener('DOMContentLoaded', function () {
   initDialogs();
   handleRoute();
+
+  /* Auth — show stored user immediately, then wait for Google SDK to load */
+  Auth.onChange(updateAuthNav);
+  updateAuthNav();
+
+  /* Init Firebase auth (SDKs load synchronously so this is safe at DOMContentLoaded) */
+  Auth.init();
 });
