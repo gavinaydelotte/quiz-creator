@@ -1,7 +1,8 @@
 /* FlashForge — Multiplayer (Firebase Firestore) */
 var MP = (function () {
-  var COLL  = 'mp_rooms';
-  var CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var COLL        = 'mp_rooms';
+  var CHARS       = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var ROUND_COUNT = 4;
 
   function db() { return Auth.getDb(); }
 
@@ -19,7 +20,7 @@ var MP = (function () {
       var j = Math.floor(Math.random() * (i + 1));
       var t = a[i]; a[i] = a[j]; a[j] = t;
     }
-    return a;
+    return a.slice(0, ROUND_COUNT);
   }
 
   /* Wraps a Firestore operation so it always waits for Firebase Auth to resolve */
@@ -39,20 +40,21 @@ var MP = (function () {
       var code = genCode();
       return whenReady(function (resolve, reject) {
         db().collection(COLL).doc(code).set({
-          code:        code,
-          hostId:      uid,
-          hostName:    name,
-          guestId:     null,
-          guestName:   null,
-          setId:       setId,
-          setTitle:    set.title,
-          deck:        shuffleDeck(set.cards),
-          status:      'waiting',
-          cardIndex:   0,
-          hostScore:   0,
-          guestScore:  0,
-          roundWinner: null,
-          createdAt:   Date.now(),
+          code:         code,
+          hostId:       uid,
+          hostName:     name,
+          guestId:      null,
+          guestName:    null,
+          setId:        setId,
+          setTitle:     set.title,
+          deck:         shuffleDeck(set.cards),
+          status:       'waiting',
+          cardIndex:    0,
+          hostScore:    0,
+          guestScore:   0,
+          roundWinner:  null,
+          roundAnswers: {},
+          createdAt:    Date.now(),
         }).then(function () { resolve(code); }).catch(reject);
       });
     },
@@ -74,14 +76,20 @@ var MP = (function () {
       });
     },
 
-    /* Atomic "first buzz wins" — ignored if someone already buzzed this round */
-    buzz: function (code, uid) {
+    /* Record a player's answer — first correct answer wins the round */
+    answer: function (code, uid, isCorrect) {
       return whenReady(function (resolve, reject) {
         var ref = db().collection(COLL).doc(code);
         db().runTransaction(function (tx) {
           return tx.get(ref).then(function (doc) {
-            if (!doc.exists || doc.data().roundWinner !== null) return;
-            tx.update(ref, { roundWinner: uid });
+            if (!doc.exists) return;
+            var d = doc.data();
+            var answers = d.roundAnswers || {};
+            if (answers[uid] !== undefined) return; /* already answered */
+            var updates = { roundAnswers: Object.assign({}, answers) };
+            updates.roundAnswers[uid] = isCorrect;
+            if (isCorrect && !d.roundWinner) updates.roundWinner = uid;
+            tx.update(ref, updates);
           });
         }).then(resolve).catch(reject);
       });
@@ -96,7 +104,7 @@ var MP = (function () {
             if (!doc.exists) return;
             var d = doc.data();
             if (d.cardIndex !== cardIndex) return;
-            var updates = { cardIndex: cardIndex + 1, roundWinner: null };
+            var updates = { cardIndex: cardIndex + 1, roundWinner: null, roundAnswers: {} };
             if (d.roundWinner === d.hostId)  updates.hostScore  = d.hostScore  + 1;
             if (d.roundWinner === d.guestId) updates.guestScore = d.guestScore + 1;
             if (cardIndex + 1 >= d.deck.length) updates.status = 'done';

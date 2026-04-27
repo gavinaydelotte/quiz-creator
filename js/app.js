@@ -3264,8 +3264,15 @@ function renderMultiplayerRoom(code) {
     }
 
     /* status === 'playing' — manage the advance timer on host side */
-    if (room.roundWinner && room.roundWinner !== lastWinnerSeen) {
-      lastWinnerSeen = room.roundWinner;
+    var answers    = room.roundAnswers || {};
+    var bothAnswered = room.guestId &&
+      answers[room.hostId] !== undefined &&
+      answers[room.guestId] !== undefined;
+    var roundOver  = !!room.roundWinner || bothAnswered;
+    var roundState = room.roundWinner || (bothAnswered ? 'both-wrong' : null);
+
+    if (roundOver && roundState !== lastWinnerSeen) {
+      lastWinnerSeen = roundState;
       if (isHost) {
         clearTimeout(advTimer);
         var capturedIndex = room.cardIndex;
@@ -3274,7 +3281,7 @@ function renderMultiplayerRoom(code) {
           MP.advance(code, capturedIndex);
         }, 3000);
       }
-    } else if (!room.roundWinner) {
+    } else if (!roundOver) {
       lastWinnerSeen = null;
       clearTimeout(advTimer); advTimer = null;
     }
@@ -3310,7 +3317,20 @@ function renderMultiplayerRoom(code) {
     });
   }
 
-  /* ── Game screen ── */
+  /* ── Build deterministic MC choices from deck ── */
+  function buildMPChoices(deck, cardIndex) {
+    var correct = deck[cardIndex].definition;
+    var defs = [];
+    for (var i = 1; i < deck.length && defs.length < 3; i++) {
+      defs.push(deck[(cardIndex + i) % deck.length].definition);
+    }
+    while (defs.length < 3) defs.push(defs[0] || '—');
+    var pos = cardIndex % 4;
+    defs.splice(pos, 0, correct);
+    return { choices: defs, correctIndex: pos };
+  }
+
+  /* ── Game screen (multiple choice) ── */
   function showPlaying(room, isHost) {
     var card       = room.deck[room.cardIndex];
     if (!card) return;
@@ -3318,16 +3338,54 @@ function renderMultiplayerRoom(code) {
     var theirScore = isHost ? room.guestScore : room.hostScore;
     var myName     = isHost ? room.hostName   : (room.guestName  || '?');
     var theirName  = isHost ? (room.guestName || '?') : room.hostName;
+    var answers    = room.roundAnswers || {};
+    var myAnswer   = answers[user.sub];       /* undefined | true | false */
     var iWon       = room.roundWinner === user.sub;
     var theyWon    = room.roundWinner && !iWon;
+    var bothAnswered = room.guestId &&
+      answers[room.hostId] !== undefined &&
+      answers[room.guestId] !== undefined;
+    var roundOver  = !!room.roundWinner || bothAnswered;
+    var bothWrong  = roundOver && !room.roundWinner;
+    var waiting    = !roundOver && myAnswer !== undefined; /* I answered wrong, awaiting opponent */
+    var labels     = ['A', 'B', 'C', 'D'];
+    var mc         = buildMPChoices(room.deck, room.cardIndex);
     var winnerName = theyWon ? e(isHost ? room.guestName : room.hostName) : '';
+
+    var choicesHTML = mc.choices.map(function (def, i) {
+      var cls = 'mp-mc-btn';
+      var dis = '';
+      if (roundOver) {
+        cls += i === mc.correctIndex ? ' mp-mc-correct' : ' mp-mc-dim';
+        dis = ' disabled';
+      } else if (waiting) {
+        cls += ' mp-mc-dim'; dis = ' disabled';
+      }
+      return '<button type="button" class="' + cls + '"' + dis + ' data-idx="' + i + '">' +
+        '<span class="mp-mc-label">' + labels[i] + '</span>' +
+        '<span class="mp-mc-text" data-choice="' + i + '"></span>' +
+      '</button>';
+    }).join('');
+
+    var resultHTML = '';
+    if (roundOver) {
+      resultHTML =
+        '<div class="mp-result">' +
+          (iWon  ? '<p class="mp-result-win">Correct! +1</p>'
+         : theyWon ? '<p class="mp-result-lose">' + winnerName + ' got it first</p>'
+         : '<p class="mp-result-lose">Nobody got it</p>') +
+          '<p class="mp-next-hint">' + (isHost ? 'Next question in 3…' : 'Waiting for next question…') + '</p>' +
+        '</div>';
+    } else if (waiting) {
+      resultHTML = '<p class="mp-next-hint">Waiting for opponent…</p>';
+    }
 
     $app.innerHTML =
       '<section class="page mp-room animate-fade-up">' +
         '<header class="mp-scoreboard">' +
           '<div class="mp-score' + (iWon ? ' mp-score-flash' : '') + '">' +
-            '<span class="mp-score-name">' + e(myName) + '</span>' +
-            '<span class="mp-score-num">'  + myScore   + '</span>' +
+            '<span class="mp-score-name">' + e(myName)    + '</span>' +
+            '<span class="mp-score-num">'  + myScore      + '</span>' +
           '</div>' +
           '<div class="mp-code-pill">' + e(code) + '</div>' +
           '<div class="mp-score' + (theyWon ? ' mp-score-flash' : '') + '">' +
@@ -3336,46 +3394,32 @@ function renderMultiplayerRoom(code) {
           '</div>' +
         '</header>' +
 
-        '<p class="mp-progress">Card ' + (room.cardIndex + 1) + ' of ' + room.deck.length + '</p>' +
+        '<p class="mp-progress">Question ' + (room.cardIndex + 1) + ' of ' + room.deck.length + '</p>' +
 
         '<article class="card mp-card-display">' +
           '<small class="mp-card-label">Term</small>' +
           '<p id="mp-term" class="mp-card-text"></p>' +
-          (room.roundWinner ?
-            '<hr class="mp-divider" />' +
-            '<small class="mp-card-label">Definition</small>' +
-            '<p id="mp-def" class="mp-card-text mp-def-text"></p>'
-          : '') +
         '</article>' +
 
-        (room.roundWinner ?
-          '<div class="mp-result">' +
-            (iWon
-              ? '<p class="mp-result-win">You got it! +1</p>'
-              : '<p class="mp-result-lose">' + winnerName + ' got it first</p>') +
-            '<p class="mp-next-hint">' + (isHost ? 'Next card in 3…' : 'Waiting for next card…') + '</p>' +
-          '</div>'
-        :
-          '<div class="mp-buzz-row">' +
-            '<button id="mp-buzz" class="btn btn-primary btn-lg mp-buzz-btn">Got It!</button>' +
-            (isHost ? '<button id="mp-skip" class="btn btn-ghost btn-sm">Skip</button>' : '') +
-          '</div>'
-        ) +
+        '<div class="mp-mc-grid">' + choicesHTML + '</div>' +
+
+        resultHTML +
       '</section>';
 
     document.getElementById('mp-term').textContent = card.term;
-    if (room.roundWinner) document.getElementById('mp-def').textContent = card.definition;
+    document.querySelectorAll('.mp-mc-text').forEach(function (el) {
+      el.textContent = mc.choices[parseInt(el.dataset.choice)];
+    });
 
-    if (!room.roundWinner) {
-      document.getElementById('mp-buzz').addEventListener('click', function () {
-        this.disabled = true;
-        MP.buzz(code, user.sub);
-      });
-      if (isHost) {
-        document.getElementById('mp-skip').addEventListener('click', function () {
-          MP.advance(code, room.cardIndex);
+    if (!roundOver && myAnswer === undefined) {
+      document.querySelectorAll('.mp-mc-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var idx     = parseInt(this.dataset.idx);
+          var correct = idx === mc.correctIndex;
+          document.querySelectorAll('.mp-mc-btn').forEach(function (b) { b.disabled = true; });
+          MP.answer(code, user.sub, correct);
         });
-      }
+      });
     }
   }
 
