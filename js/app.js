@@ -3239,6 +3239,14 @@ function renderMultiplayerRoom(code) {
   }
   _mpCleanup = cleanup;
 
+  /* Show a connecting state immediately so the page isn't blank */
+  $app.innerHTML =
+    '<section class="page mp-room animate-fade-up">' +
+      '<div class="card mp-waiting">' +
+        '<p class="mp-waiting-msg"><span class="mp-spinner" aria-hidden="true"></span>Connecting…</p>' +
+      '</div>' +
+    '</section>';
+
   unsub = MP.listen(code, function (room) {
     if (!room) { navigate('#/multiplayer'); return; }
 
@@ -3272,6 +3280,15 @@ function renderMultiplayerRoom(code) {
     }
 
     showPlaying(room, isHost);
+  }, function (err) {
+    $app.innerHTML =
+      '<section class="page mp-room animate-fade-up">' +
+        '<div class="card mp-waiting">' +
+          '<p style="color:var(--red);font-weight:600">Could not connect to room</p>' +
+          '<p style="font-size:0.875rem;color:var(--text-3)">' + (err && err.message ? e(err.message) : 'Check your connection and Firestore rules.') + '</p>' +
+          '<a href="#/multiplayer" class="btn btn-ghost btn-sm">Back</a>' +
+        '</div>' +
+      '</section>';
   });
 
   /* ── Waiting screen (host only) ── */

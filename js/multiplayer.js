@@ -42,14 +42,14 @@ var MP = (function () {
         hostScore:   0,
         guestScore:  0,
         roundWinner: null,
-        createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
+        createdAt:   Date.now(),
       }).then(function () { return code; });
     },
 
     join: function (code, uid, name) {
       if (!db()) return Promise.reject(new Error('Sign in to use multiplayer.'));
       var ref = db().collection(COLL).doc(code.toUpperCase().replace(/\s/g, ''));
-      return db.runTransaction(function (tx) {
+      return db().runTransaction(function (tx) {
         return tx.get(ref).then(function (doc) {
           if (!doc.exists)                         throw new Error('Room not found. Check the code.');
           var d = doc.data();
@@ -97,11 +97,12 @@ var MP = (function () {
       return db().collection(COLL).doc(code).update({ status: 'done' }).catch(function () {});
     },
 
-    listen: function (code, cb) {
-      if (!db()) return function () {};
-      return db().collection(COLL).doc(code).onSnapshot(function (doc) {
-        cb(doc.exists ? doc.data() : null);
-      });
+    listen: function (code, cb, onErr) {
+      if (!db()) { if (onErr) onErr(new Error('Sign in to use multiplayer.')); return function () {}; }
+      return db().collection(COLL).doc(code).onSnapshot(
+        function (doc) { cb(doc.exists ? doc.data() : null); },
+        function (err) { if (onErr) onErr(err); }
+      );
     },
   };
 })();
