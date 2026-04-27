@@ -15,11 +15,12 @@ var AI = (function () {
      * Generate flashcard pairs via OpenAI gpt-4o-mini.
      * Get a key at https://platform.openai.com/api-keys
      *
-     * @param {string} topic   Natural-language topic description
-     * @param {number} count   Number of cards to generate (3–20)
+     * @param {string} topic        Natural-language topic description (may be empty when fileContent is provided)
+     * @param {number} count        Number of cards to generate (3–20)
+     * @param {string} [fileContent] Extracted text from an uploaded file
      * @returns {Promise<Array<{id:string, term:string, definition:string}>>}
      */
-    generate: function (topic, count) {
+    generate: function (topic, count, fileContent) {
       var key = this.getKey();
       if (!key) {
         return Promise.reject(
@@ -27,18 +28,41 @@ var AI = (function () {
         );
       }
 
-      var prompt = [
-        'Generate exactly ' + count + ' flashcard pairs about: "' + topic + '".',
-        '',
-        'Return ONLY a valid JSON array — no explanation, no markdown fences, no other text:',
-        '[{"term": "...", "definition": "..."}, ...]',
-        '',
-        'Requirements:',
-        '- Terms must be specific and clear',
-        '- Definitions must be concise (1–2 sentences max)',
-        '- Cover diverse aspects of the topic',
-        '- Be accurate and educational',
-      ].join('\n');
+      var prompt;
+      if (fileContent) {
+        var focusLine = topic ? '\nFocus specifically on: "' + topic + '".' : '';
+        prompt = [
+          'Here is some study material:',
+          '',
+          '---',
+          fileContent.slice(0, 14000),
+          '---',
+          '',
+          'Based on this material, generate exactly ' + count + ' flashcard pairs.' + focusLine,
+          '',
+          'Return ONLY a valid JSON array — no explanation, no markdown fences, no other text:',
+          '[{"term": "...", "definition": "..."}, ...]',
+          '',
+          'Requirements:',
+          '- Terms must be specific and drawn from the material above',
+          '- Definitions must be concise (1–2 sentences max)',
+          '- Cover diverse aspects of the material',
+          '- Be accurate and faithful to the source',
+        ].join('\n');
+      } else {
+        prompt = [
+          'Generate exactly ' + count + ' flashcard pairs about: "' + topic + '".',
+          '',
+          'Return ONLY a valid JSON array — no explanation, no markdown fences, no other text:',
+          '[{"term": "...", "definition": "..."}, ...]',
+          '',
+          'Requirements:',
+          '- Terms must be specific and clear',
+          '- Definitions must be concise (1–2 sentences max)',
+          '- Cover diverse aspects of the topic',
+          '- Be accurate and educational',
+        ].join('\n');
+      }
 
       return fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

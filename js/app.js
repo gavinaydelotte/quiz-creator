@@ -8,6 +8,7 @@ var $app = document.getElementById('app');
 var _activeTimer = null;
 var _aiCallback  = null;
 var _confirmCb   = null;
+var _mpCleanup   = null;
 
 /* Escape user content before injecting into innerHTML */
 function e(str) {
@@ -279,6 +280,56 @@ function updateAuthNav() {
   container.appendChild(wrapper);
 }
 
+/* ── File text extraction (used by AI dialog) ── */
+function extractFileText(file) {
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+    return new Promise(function (resolve, reject) {
+      function runExtract() {
+        var reader = new FileReader();
+        reader.onload = function (ev) {
+          window.pdfjsLib.getDocument({ data: new Uint8Array(ev.target.result) }).promise
+            .then(function (pdf) {
+              var results = new Array(pdf.numPages);
+              var done = 0;
+              if (pdf.numPages === 0) { resolve(''); return; }
+              for (var i = 1; i <= pdf.numPages; i++) {
+                (function (n) {
+                  pdf.getPage(n).then(function (page) {
+                    page.getTextContent().then(function (content) {
+                      results[n - 1] = content.items.map(function (it) { return it.str; }).join(' ');
+                      if (++done === pdf.numPages) resolve(results.join('\n\n'));
+                    });
+                  });
+                })(i);
+              }
+            })
+            .catch(reject);
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+      }
+
+      if (window.pdfjsLib) { runExtract(); return; }
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = function () {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        runExtract();
+      };
+      s.onerror = function () { reject(new Error('Failed to load PDF parser. Try saving as .txt instead.')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload  = function (ev) { resolve(ev.target.result); };
+    reader.onerror = function ()   { reject(new Error('Could not read the file.')); };
+    reader.readAsText(file);
+  });
+}
+
 function initDialogs() {
   /* ── Settings dialog ── */
   var settingsDialog = document.getElementById('settings-dialog');
@@ -295,18 +346,53 @@ function initDialogs() {
   });
 
   /* ── AI generator dialog ── */
-  var aiDialog  = document.getElementById('ai-dialog');
-  var aiErrEl   = document.getElementById('ai-error');
-  var aiGenBtn  = document.getElementById('ai-generate');
+  var aiDialog   = document.getElementById('ai-dialog');
+  var aiErrEl    = document.getElementById('ai-error');
+  var aiGenBtn   = document.getElementById('ai-generate');
+  var aiFileText = '';
 
-  function closeAI() { aiDialog.close(); }
+  function resetAIFile() {
+    aiFileText = '';
+    document.getElementById('ai-file').value = '';
+    document.getElementById('ai-file-name').textContent = 'No file chosen';
+    document.getElementById('ai-file-clear').hidden = true;
+  }
+
+  function closeAI() { aiDialog.close(); resetAIFile(); }
   document.getElementById('ai-close').addEventListener('click',  closeAI);
   document.getElementById('ai-cancel').addEventListener('click', closeAI);
+  document.getElementById('ai-file-clear').addEventListener('click', resetAIFile);
+
+  document.getElementById('ai-file').addEventListener('change', function () {
+    var file = this.files[0];
+    if (!file) return;
+    var nameEl   = document.getElementById('ai-file-name');
+    var clearBtn = document.getElementById('ai-file-clear');
+    nameEl.textContent = 'Reading ' + file.name + '…';
+    clearBtn.hidden    = false;
+    aiErrEl.hidden     = true;
+
+    extractFileText(file)
+      .then(function (text) {
+        aiFileText = text;
+        nameEl.textContent = file.name + ' (' + Math.round(text.length / 1000) + 'k chars)';
+      })
+      .catch(function (err) {
+        resetAIFile();
+        aiErrEl.hidden      = false;
+        aiErrEl.textContent = err.message || 'Could not read file.';
+      });
+  });
 
   aiGenBtn.addEventListener('click', function () {
     var topic = document.getElementById('ai-topic').value.trim();
     var count = parseInt(document.getElementById('ai-count').value, 10) || 8;
-    if (!topic) { document.getElementById('ai-topic').focus(); return; }
+
+    if (!topic && !aiFileText) {
+      aiErrEl.hidden      = false;
+      aiErrEl.textContent = 'Enter a topic or upload a file.';
+      return;
+    }
 
     function reset() {
       aiGenBtn.disabled    = false;
@@ -315,9 +401,9 @@ function initDialogs() {
 
     aiErrEl.hidden       = true;
     aiGenBtn.disabled    = true;
-    aiGenBtn.textContent = 'Generating...';
+    aiGenBtn.textContent = 'Generating…';
 
-    AI.generate(topic, count)
+    AI.generate(topic, count, aiFileText || null)
       .then(function (cards) {
         reset();
         if (!cards || cards.length === 0) {
@@ -326,6 +412,7 @@ function initDialogs() {
           return;
         }
         aiDialog.close();
+        resetAIFile();
         if (typeof _aiCallback === 'function') _aiCallback(cards);
         showToast(cards.length + ' cards generated');
       })
@@ -364,7 +451,8 @@ function updateNavActive() {
 }
 
 function handleRoute() {
-  clearTimer();        /* cancel any running game timer before switching pages */
+  clearTimer();
+  if (_mpCleanup) { _mpCleanup(); _mpCleanup = null; }
   updateNavActive();
 
   /* Parse the URL hash into route segments, e.g. #/study/set-123/flashcards → ['study','set-123','flashcards'] */
@@ -391,6 +479,9 @@ function handleRoute() {
     else if (mode === 'write')      renderWriteMode(parts[1]);
     else if (mode === 'review')     renderReview(parts[1]);
     else renderHome();
+  } else if (parts[0] === 'multiplayer') {
+    if (parts[1]) renderMultiplayerRoom(parts[1]);
+    else          renderMultiplayer();
   } else if (parts[0] === 'games') {
     if (parts.length <= 1 || !parts[1]) {
       renderGames();
@@ -432,6 +523,7 @@ function renderHome() {
     { label: 'Match',            desc: 'Race to match terms to definitions',       color: 'var(--amber)',   tag: 'a', href: '#/games' },
     { label: 'Games',            desc: 'Hangman, Survival, Speed & more',          color: 'var(--green)',   tag: 'a', href: '#/games' },
     { label: 'Generate with AI', desc: 'Create a set instantly with GPT-4o mini', color: 'var(--purple)',  tag: 'button', id: 'home-ai-btn' },
+    { label: 'Multiplayer',      desc: 'Race a friend through any set in real time', color: 'var(--red)',   tag: 'a', href: '#/multiplayer' },
   ];
 
   var modesTilesHTML = modes.map(function (m) {
@@ -1139,6 +1231,7 @@ function renderCreate(editId) {
   /* ── AI generate ── */
   document.getElementById('ai-open-btn').addEventListener('click', function () {
     openAIDialog(function (generated) {
+      cards = cards.filter(function (c) { return c.term.trim() || c.definition.trim(); });
       generated.forEach(function (c) { cards.push(c); });
       document.getElementById('card-count-note').textContent = cards.length + ' cards';
       rebuildList();
@@ -1344,11 +1437,16 @@ function renderFlashcards(setId, overrideDeck) {
   if (!set) { navigate('#/library'); return; }
   announce('Flashcards — ' + set.title);
 
-  var deck     = shuffle((overrideDeck || set.cards).slice());
-  var index    = 0;
-  var known    = {};
-  var missed   = {};
+  var deck      = shuffle((overrideDeck || set.cards).slice());
+  var index     = 0;
+  var known     = {};
+  var missed    = {};
   var isFlipped = false;
+  function speak(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  }
 
   function render() {
     if (index >= deck.length) { showDone(); return; }
@@ -1376,11 +1474,17 @@ function renderFlashcards(setId, overrideDeck) {
               '<header><small>Term</small></header>' +
               (card.image ? '<img class="fc-card-img" id="fc-card-img" alt="" />' : '') +
               '<p class="fc-card-text" id="fc-term"></p>' +
-              '<footer><small>Click or press Space to flip</small></footer>' +
+              '<footer>' +
+                '<small>Click or press Space to flip</small>' +
+                '<button type="button" class="fc-speak-btn btn btn-ghost btn-icon" data-speak="term" aria-label="Read term aloud">&#128266;</button>' +
+              '</footer>' +
             '</div>' +
             '<div class="flip-card-back" aria-hidden="true">' +
               '<header><small>Definition</small></header>' +
               '<p class="fc-card-text" id="fc-def"></p>' +
+              '<footer>' +
+                '<button type="button" class="fc-speak-btn btn btn-ghost btn-icon" data-speak="def" aria-label="Read definition aloud">&#128266;</button>' +
+              '</footer>' +
             '</div>' +
           '</div>' +
         '</article>' +
@@ -1398,29 +1502,51 @@ function renderFlashcards(setId, overrideDeck) {
     document.getElementById('fc-def').textContent  = card.definition;
     if (card.image) document.getElementById('fc-card-img').src = card.image;
 
+    /* Flip without rebuilding DOM so the CSS 3D transition fires */
+    function applyFlip() {
+      isFlipped = !isFlipped;
+      var cardEl    = document.getElementById('fc-card');
+      var actionsEl = document.getElementById('fc-actions');
+      var hintEl    = $app.querySelector('.fc-flip-hint');
+      cardEl.classList.toggle('flipped', isFlipped);
+      cardEl.setAttribute('aria-label', isFlipped
+        ? 'Definition: ' + card.definition
+        : 'Term: ' + card.term + '. Press to reveal definition.');
+      if (actionsEl) actionsEl.classList.toggle('visible', isFlipped);
+      if (hintEl)    hintEl.hidden = isFlipped;
+    }
+
     var fcCard = document.getElementById('fc-card');
-    fcCard.addEventListener('click', function () { isFlipped = !isFlipped; render(); });
+    fcCard.addEventListener('click', applyFlip);
     fcCard.addEventListener('keydown', function (ev) {
-      if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); isFlipped = !isFlipped; render(); }
+      if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); applyFlip(); }
+    });
+
+    /* Manual speak buttons (stop propagation so they don't flip the card) */
+    document.querySelectorAll('.fc-speak-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        speak(btn.dataset.speak === 'term' ? card.term : card.definition);
+      });
     });
 
     document.getElementById('fc-restart').addEventListener('click', function () {
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
       deck = shuffle(set.cards.slice()); index = 0; known = {}; missed = {}; isFlipped = false; render();
     });
 
-    if (isFlipped) {
-      document.getElementById('fc-got').addEventListener('click', function () {
-        SR.update(setId, card.id, 4); /* Got It → SM-2 grade 4 */
-        known[card.id] = true; isFlipped = false; index++; render();
-      });
-      document.getElementById('fc-miss').addEventListener('click', function () {
-        SR.update(setId, card.id, 1); /* Missed → SM-2 grade 1 */
-        missed[card.id] = true; isFlipped = false; index++; render();
-      });
-    }
+    document.getElementById('fc-got').addEventListener('click', function () {
+      SR.update(setId, card.id, 4); /* Got It → SM-2 grade 4 */
+      known[card.id] = true; isFlipped = false; index++; render();
+    });
+    document.getElementById('fc-miss').addEventListener('click', function () {
+      SR.update(setId, card.id, 1); /* Missed → SM-2 grade 1 */
+      missed[card.id] = true; isFlipped = false; index++; render();
+    });
   }
 
   function showDone() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     var knownCount  = Object.keys(known).length;
     var missedCount = Object.keys(missed).length;
     var pct = deck.length > 0 ? Math.round((knownCount / deck.length) * 100) : 0;
@@ -3003,6 +3129,280 @@ function applyTheme(theme) {
   var lightBtn = document.getElementById('theme-light-btn');
   if (darkBtn)  darkBtn.classList.toggle('settings-theme-btn-active',  theme === 'dark');
   if (lightBtn) lightBtn.classList.toggle('settings-theme-btn-active', theme === 'light');
+}
+
+/* ══════════════════════════════════════
+   PAGE: MULTIPLAYER
+══════════════════════════════════════ */
+
+function renderMultiplayer() {
+  announce('Multiplayer');
+  var user = Auth.getUser();
+  var sets = Storage.getAll();
+
+  $app.innerHTML =
+    '<section class="page mp-page animate-fade-up" aria-labelledby="mp-heading">' +
+      '<h1 id="mp-heading">Multiplayer</h1>' +
+      '<p class="mp-sub">Race a friend through any flashcard set in real time.</p>' +
+
+      (!user ?
+        '<div class="card mp-card mp-auth-notice">' +
+          '<p>Sign in to create or join a multiplayer room.</p>' +
+        '</div>'
+      : sets.length === 0 ?
+        '<div class="card mp-card mp-auth-notice">' +
+          '<p>You need at least one flashcard set to play.</p>' +
+          '<a href="#/create" class="btn btn-primary">Create a Set</a>' +
+        '</div>'
+      :
+        '<div class="mp-options">' +
+          '<div class="card mp-card">' +
+            '<h2>Create a Room</h2>' +
+            '<p class="mp-card-desc">Pick a set and share the code with a friend.</p>' +
+            '<div class="field">' +
+              '<label for="mp-set-select">Choose a set</label>' +
+              '<select id="mp-set-select" class="input">' +
+                sets.map(function (s) {
+                  return '<option value="' + e(s.id) + '">' + e(s.title) + ' (' + s.cards.length + ' cards)</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+            '<button id="mp-create-btn" class="btn btn-primary">Create Room</button>' +
+            '<p id="mp-create-err" class="mp-error" hidden></p>' +
+          '</div>' +
+
+          '<div class="card mp-card">' +
+            '<h2>Join a Room</h2>' +
+            '<p class="mp-card-desc">Enter the 4-letter code from your friend.</p>' +
+            '<div class="field">' +
+              '<label for="mp-code-input">Room code</label>' +
+              '<input id="mp-code-input" type="text" class="input mp-code-input" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false" />' +
+            '</div>' +
+            '<button id="mp-join-btn" class="btn btn-primary">Join Room</button>' +
+            '<p id="mp-join-err" class="mp-error" hidden></p>' +
+          '</div>' +
+        '</div>'
+      ) +
+    '</section>';
+
+  if (!user || sets.length === 0) return;
+
+  document.getElementById('mp-code-input').addEventListener('input', function () {
+    this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  });
+
+  var createBtn = document.getElementById('mp-create-btn');
+  var createErr = document.getElementById('mp-create-err');
+  createBtn.addEventListener('click', function () {
+    var setId = document.getElementById('mp-set-select').value;
+    var name  = user.name || user.email || 'Host';
+    createBtn.disabled = true; createBtn.textContent = 'Creating…';
+    createErr.hidden = true;
+    MP.create(setId, user.sub, name)
+      .then(function (code) { navigate('#/multiplayer/' + code); })
+      .catch(function (err) {
+        createBtn.disabled = false; createBtn.textContent = 'Create Room';
+        createErr.hidden = false; createErr.textContent = err.message;
+      });
+  });
+
+  var joinBtn = document.getElementById('mp-join-btn');
+  var joinErr = document.getElementById('mp-join-err');
+  joinBtn.addEventListener('click', function () {
+    var code = document.getElementById('mp-code-input').value.trim();
+    if (code.length !== 4) {
+      joinErr.hidden = false; joinErr.textContent = 'Enter a 4-letter room code.'; return;
+    }
+    var name = user.name || user.email || 'Guest';
+    joinBtn.disabled = true; joinBtn.textContent = 'Joining…';
+    joinErr.hidden = true;
+    MP.join(code, user.sub, name)
+      .then(function () { navigate('#/multiplayer/' + code.toUpperCase()); })
+      .catch(function (err) {
+        joinBtn.disabled = false; joinBtn.textContent = 'Join Room';
+        joinErr.hidden = false; joinErr.textContent = err.message;
+      });
+  });
+}
+
+function renderMultiplayerRoom(code) {
+  var user = Auth.getUser();
+  if (!user) { navigate('#/multiplayer'); return; }
+
+  var unsub          = null;
+  var advTimer       = null;
+  var lastWinnerSeen = null;
+
+  function cleanup() {
+    if (unsub)    { unsub(); unsub = null; }
+    if (advTimer) { clearTimeout(advTimer); advTimer = null; }
+  }
+  _mpCleanup = cleanup;
+
+  unsub = MP.listen(code, function (room) {
+    if (!room) { navigate('#/multiplayer'); return; }
+
+    var isHost = room.hostId === user.sub;
+
+    if (room.status === 'waiting') {
+      showWaiting(room);
+      return;
+    }
+
+    if (room.status === 'done') {
+      if (advTimer) { clearTimeout(advTimer); advTimer = null; }
+      showDone(room, isHost);
+      return;
+    }
+
+    /* status === 'playing' — manage the advance timer on host side */
+    if (room.roundWinner && room.roundWinner !== lastWinnerSeen) {
+      lastWinnerSeen = room.roundWinner;
+      if (isHost) {
+        clearTimeout(advTimer);
+        var capturedIndex = room.cardIndex;
+        advTimer = setTimeout(function () {
+          advTimer = null;
+          MP.advance(code, capturedIndex);
+        }, 3000);
+      }
+    } else if (!room.roundWinner) {
+      lastWinnerSeen = null;
+      clearTimeout(advTimer); advTimer = null;
+    }
+
+    showPlaying(room, isHost);
+  });
+
+  /* ── Waiting screen (host only) ── */
+  function showWaiting(room) {
+    $app.innerHTML =
+      '<section class="page mp-room animate-fade-up">' +
+        '<div class="card mp-waiting">' +
+          '<p class="mp-code-display" aria-label="Room code">' + e(code) + '</p>' +
+          '<p class="mp-code-label">Room Code</p>' +
+          '<p class="mp-waiting-set">' + e(room.setTitle) + '</p>' +
+          '<p class="mp-waiting-msg"><span class="mp-spinner" aria-hidden="true"></span>Waiting for opponent…</p>' +
+          '<p class="mp-share-hint">Share this code with a friend to start</p>' +
+          '<button id="mp-cancel" class="btn btn-ghost btn-sm">Cancel</button>' +
+        '</div>' +
+      '</section>';
+
+    document.getElementById('mp-cancel').addEventListener('click', function () {
+      MP.end(code).then(function () { navigate('#/multiplayer'); });
+    });
+  }
+
+  /* ── Game screen ── */
+  function showPlaying(room, isHost) {
+    var card       = room.deck[room.cardIndex];
+    if (!card) return;
+    var myScore    = isHost ? room.hostScore  : room.guestScore;
+    var theirScore = isHost ? room.guestScore : room.hostScore;
+    var myName     = isHost ? room.hostName   : (room.guestName  || '?');
+    var theirName  = isHost ? (room.guestName || '?') : room.hostName;
+    var iWon       = room.roundWinner === user.sub;
+    var theyWon    = room.roundWinner && !iWon;
+    var winnerName = theyWon ? e(isHost ? room.guestName : room.hostName) : '';
+
+    $app.innerHTML =
+      '<section class="page mp-room animate-fade-up">' +
+        '<header class="mp-scoreboard">' +
+          '<div class="mp-score' + (iWon ? ' mp-score-flash' : '') + '">' +
+            '<span class="mp-score-name">' + e(myName) + '</span>' +
+            '<span class="mp-score-num">'  + myScore   + '</span>' +
+          '</div>' +
+          '<div class="mp-code-pill">' + e(code) + '</div>' +
+          '<div class="mp-score' + (theyWon ? ' mp-score-flash' : '') + '">' +
+            '<span class="mp-score-name">' + e(theirName) + '</span>' +
+            '<span class="mp-score-num">'  + theirScore   + '</span>' +
+          '</div>' +
+        '</header>' +
+
+        '<p class="mp-progress">Card ' + (room.cardIndex + 1) + ' of ' + room.deck.length + '</p>' +
+
+        '<article class="card mp-card-display">' +
+          '<small class="mp-card-label">Term</small>' +
+          '<p id="mp-term" class="mp-card-text"></p>' +
+          (room.roundWinner ?
+            '<hr class="mp-divider" />' +
+            '<small class="mp-card-label">Definition</small>' +
+            '<p id="mp-def" class="mp-card-text mp-def-text"></p>'
+          : '') +
+        '</article>' +
+
+        (room.roundWinner ?
+          '<div class="mp-result">' +
+            (iWon
+              ? '<p class="mp-result-win">You got it! +1</p>'
+              : '<p class="mp-result-lose">' + winnerName + ' got it first</p>') +
+            '<p class="mp-next-hint">' + (isHost ? 'Next card in 3…' : 'Waiting for next card…') + '</p>' +
+          '</div>'
+        :
+          '<div class="mp-buzz-row">' +
+            '<button id="mp-buzz" class="btn btn-primary btn-lg mp-buzz-btn">Got It!</button>' +
+            (isHost ? '<button id="mp-skip" class="btn btn-ghost btn-sm">Skip</button>' : '') +
+          '</div>'
+        ) +
+      '</section>';
+
+    document.getElementById('mp-term').textContent = card.term;
+    if (room.roundWinner) document.getElementById('mp-def').textContent = card.definition;
+
+    if (!room.roundWinner) {
+      document.getElementById('mp-buzz').addEventListener('click', function () {
+        this.disabled = true;
+        MP.buzz(code, user.sub);
+      });
+      if (isHost) {
+        document.getElementById('mp-skip').addEventListener('click', function () {
+          MP.advance(code, room.cardIndex);
+        });
+      }
+    }
+  }
+
+  /* ── Done screen ── */
+  function showDone(room, isHost) {
+    var myScore    = isHost ? room.hostScore  : room.guestScore;
+    var theirScore = isHost ? room.guestScore : room.hostScore;
+    var myName     = isHost ? room.hostName   : (room.guestName  || '?');
+    var theirName  = isHost ? (room.guestName || '?') : room.hostName;
+    var iWin = myScore > theirScore;
+    var tie  = myScore === theirScore;
+
+    $app.innerHTML =
+      '<section class="page mp-room animate-fade-up">' +
+        '<div class="card mp-done">' +
+          '<p class="mp-done-headline">' + (tie ? "It's a tie!" : iWin ? 'You win! 🎉' : 'They win!') + '</p>' +
+          '<div class="mp-done-scores">' +
+            '<div class="mp-done-score' + (iWin && !tie ? ' mp-done-winner' : '') + '">' +
+              '<p class="mp-done-score-name">' + e(myName)    + '</p>' +
+              '<p class="mp-done-score-num">'  + myScore      + '</p>' +
+            '</div>' +
+            '<span class="mp-done-vs">vs</span>' +
+            '<div class="mp-done-score' + (!iWin && !tie ? ' mp-done-winner' : '') + '">' +
+              '<p class="mp-done-score-name">' + e(theirName) + '</p>' +
+              '<p class="mp-done-score-num">'  + theirScore   + '</p>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mp-done-actions">' +
+            (isHost
+              ? '<button id="mp-rematch" class="btn btn-primary">Rematch</button>'
+              : '<p class="mp-done-hint">Ask your friend to start a rematch.</p>') +
+            '<a href="#/multiplayer" class="btn btn-ghost">New Game</a>' +
+          '</div>' +
+        '</div>' +
+      '</section>';
+
+    if (isHost) {
+      document.getElementById('mp-rematch').addEventListener('click', function () {
+        var name = user.name || user.email || 'Host';
+        MP.create(room.setId, user.sub, name)
+          .then(function (newCode) { navigate('#/multiplayer/' + newCode); });
+      });
+    }
+  }
 }
 
 document.addEventListener('DOMContentLoaded', function () {
