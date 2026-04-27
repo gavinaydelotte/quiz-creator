@@ -32,7 +32,6 @@ var Auth = (function () {
 
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     _db = firebase.firestore();
-    _db.settings({ experimentalForceLongPolling: true, merge: true });
 
     firebase.auth().onAuthStateChanged(function (fbUser) {
       if (fbUser) {
