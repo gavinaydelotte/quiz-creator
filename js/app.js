@@ -165,7 +165,7 @@ function openAIDialog(cb) {
   if (!AI.getKey()) {
     document.getElementById('api-key-input').value = '';
     document.getElementById('settings-dialog').showModal();
-    showToast('Add your Gemini API key first, then click Generate with AI again.');
+    showToast('Add your OpenAI API key first, then click Generate with AI again.');
     return;
   }
   _aiCallback = cb;
@@ -431,7 +431,7 @@ function renderHome() {
     { label: 'Write',            desc: 'Type your answers to learn faster',        color: 'var(--purple)',  tag: 'a', href: featured ? '#/study/' + featured.id + '/write'      : '#/library' },
     { label: 'Match',            desc: 'Race to match terms to definitions',       color: 'var(--amber)',   tag: 'a', href: '#/games' },
     { label: 'Games',            desc: 'Hangman, Survival, Speed & more',          color: 'var(--green)',   tag: 'a', href: '#/games' },
-    { label: 'Generate with AI', desc: 'Create a set instantly with Gemini AI',   color: 'var(--purple)',  tag: 'button', id: 'home-ai-btn' },
+    { label: 'Generate with AI', desc: 'Create a set instantly with GPT-4o mini', color: 'var(--purple)',  tag: 'button', id: 'home-ai-btn' },
   ];
 
   var modesTilesHTML = modes.map(function (m) {

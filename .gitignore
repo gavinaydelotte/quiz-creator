@@ -1,5 +1,5 @@
 # Firebase credentials — never commit this
-js/firebase-config.js
+#js/firebase-config.js
 
 # Firebase
 .firebase/

@@ -1,4 +1,4 @@
-/* FlashForge — AI Integration (Google Gemini API) */
+/* FlashForge — AI Integration (OpenAI API) */
 var AI = (function () {
   var KEY_STORE = 'qf-api-key';
 
@@ -12,9 +12,8 @@ var AI = (function () {
     },
 
     /**
-     * Generate flashcard pairs via Google Gemini.
-     * Free tier: 1,500 requests/day, no credit card required.
-     * Get a key at https://aistudio.google.com/
+     * Generate flashcard pairs via OpenAI gpt-4o-mini.
+     * Get a key at https://platform.openai.com/api-keys
      *
      * @param {string} topic   Natural-language topic description
      * @param {number} count   Number of cards to generate (3–20)
@@ -24,7 +23,7 @@ var AI = (function () {
       var key = this.getKey();
       if (!key) {
         return Promise.reject(
-          new Error('No API key set. Click "API Key" in the navbar to add your Google Gemini key.')
+          new Error('No API key set. Click "API Key" in the navbar to add your OpenAI key.')
         );
       }
 
@@ -41,15 +40,17 @@ var AI = (function () {
         '- Be accurate and educational',
       ].join('\n');
 
-      var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='
-        + encodeURIComponent(key);
-
-      return fetch(url, {
+      return fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'Bearer ' + key,
+        },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          max_tokens: 2048,
         }),
       })
         .then(function (res) {
@@ -63,16 +64,14 @@ var AI = (function () {
           return res.json();
         })
         .then(function (data) {
-          var part = data.candidates &&
-                     data.candidates[0] &&
-                     data.candidates[0].content &&
-                     data.candidates[0].content.parts &&
-                     data.candidates[0].content.parts[0];
+          var message = data.choices &&
+                        data.choices[0] &&
+                        data.choices[0].message;
 
-          if (!part || !part.text) throw new Error('Empty response from Gemini. Please try again.');
+          if (!message || !message.content) throw new Error('Empty response from OpenAI. Please try again.');
 
           /* Strip markdown code fences if the model wrapped its output */
-          var text = part.text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+          var text = message.content.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
 
           var match = text.match(/\[[\s\S]*\]/);
           if (!match) throw new Error('Unexpected response format. Please try again.');
