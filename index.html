@@ -6,6 +6,8 @@
   <meta name="description" content="FlashForge — create flashcard sets, study smart, and play games for any topic" />
   <title>FlashForge</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <!-- Apply saved theme before first paint to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('qf-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();</script>
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -14,11 +16,10 @@
 <body>
 
   <!-- ── Site Header / Nav ── -->
-  <header class="site-header" role="banner">
+  <header class="site-header">
     <nav class="main-nav" aria-label="Main navigation">
       <a href="#/" class="navbar-logo" aria-label="FlashForge — go to home">
-        <span class="logo-mark" aria-hidden="true"></span>
-        <span class="logo-text">FlashForge</span>
+        <img src="FlashForge Logo.png" alt="FlashForge" class="logo-img" />
       </a>
 
       <ul class="nav-links" role="list">
@@ -40,14 +41,16 @@
   <div id="page-announcer" role="status" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
   <!-- ── Main Content ── -->
-  <main id="app" role="main"></main>
+  <main id="app"></main>
 
   <!-- ── Mobile Bottom Nav ── -->
   <nav class="mobile-nav" aria-label="Mobile navigation">
-    <a href="#/"        class="mobile-nav-link" aria-label="Home">Home</a>
-    <a href="#/library" class="mobile-nav-link" aria-label="Library">Library</a>
-    <a href="#/games"   class="mobile-nav-link" aria-label="Games">Games</a>
-    <a href="#/create"  class="mobile-nav-link mobile-nav-create" aria-label="Create new set">+ New</a>
+    <ul role="list">
+      <li><a href="#/"        class="mobile-nav-link" aria-label="Home">Home</a></li>
+      <li><a href="#/library" class="mobile-nav-link" aria-label="Library">Library</a></li>
+      <li><a href="#/games"   class="mobile-nav-link" aria-label="Games">Games</a></li>
+      <li><a href="#/create"  class="mobile-nav-link mobile-nav-create" aria-label="Create new set">+ New</a></li>
+    </ul>
   </nav>
 
   <!-- ════════════════════════════════════════
@@ -62,7 +65,7 @@
         <button type="button" id="ai-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">&#10005;</button>
       </header>
 
-      <div class="dialog-body">
+      <form id="ai-form" class="dialog-body" novalidate>
         <p id="ai-dialog-desc">
           Describe any topic and Gemini AI will generate flashcard pairs for you — academic or not.
         </p>
@@ -85,11 +88,11 @@
         </div>
 
         <div id="ai-error" role="alert" class="ai-error" hidden></div>
-      </div>
+      </form>
 
       <footer class="dialog-footer">
         <button type="button" id="ai-cancel" class="btn btn-ghost">Cancel</button>
-        <button type="button" id="ai-generate" class="btn btn-primary">Generate</button>
+        <button type="submit" form="ai-form" id="ai-generate" class="btn btn-primary">Generate</button>
       </footer>
     </article>
   </dialog>
@@ -102,7 +105,18 @@
         <button type="button" id="settings-close" class="btn btn-ghost btn-icon" aria-label="Close dialog">&#10005;</button>
       </header>
 
-      <div class="dialog-body">
+      <form id="settings-form" class="dialog-body" novalidate>
+
+        <!-- Theme -->
+        <div class="field">
+          <label>Theme</label>
+          <div class="settings-theme-row">
+            <button type="button" id="theme-dark-btn"  class="btn settings-theme-btn">Dark</button>
+            <button type="button" id="theme-light-btn" class="btn settings-theme-btn">Light</button>
+          </div>
+        </div>
+
+        <div class="settings-divider"></div>
 
         <!-- Gemini API Key -->
         <div class="field">
@@ -114,12 +128,11 @@
           </p>
         </div>
 
-
-      </div>
+      </form>
 
       <footer class="dialog-footer">
         <button type="button" id="settings-cancel" class="btn btn-ghost">Cancel</button>
-        <button type="button" id="settings-save" class="btn btn-primary">Save</button>
+        <button type="submit" form="settings-form" id="settings-save" class="btn btn-primary">Save</button>
       </footer>
     </article>
   </dialog>
@@ -142,6 +155,9 @@
 
   <script src="js/firebase-config.js"></script>
   <script src="js/storage.js"></script>
+  <script src="js/sr.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/streak.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/sync.js"></script>
   <script src="js/ai.js"></script>

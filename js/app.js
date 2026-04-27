@@ -57,6 +57,48 @@ function showToast(msg, type) {
 }
 
 /* ══════════════════════════════════════
+   STREAK HELPERS
+══════════════════════════════════════ */
+
+/* Returns the HTML for a streak callout; only renders if streak >= 1 */
+function streakCalloutHTML(data) {
+  if (!data || data.current < 1) return '';
+  var badge    = Streak.getBadge(data.current);
+  var newBadge = Streak.isMilestone(data.current) ? badge : null;
+  return '<div class="streak-callout">' +
+    '<span class="streak-count">' + data.current + '</span>' +
+    '<span class="streak-text">day streak</span>' +
+    (newBadge ? '<span class="streak-badge">' + e(newBadge.label) + '</span>' : '') +
+  '</div>';
+}
+
+/* ══════════════════════════════════════
+   SHARE LINK HELPERS
+══════════════════════════════════════ */
+
+/* Encode a set as URL-safe base64 so it can live in the hash */
+function encodeShareData(set) {
+  try {
+    var data = { title: set.title, description: set.description || '', category: set.category, cards: set.cards };
+    var b64  = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  } catch (err) { return null; }
+}
+
+function decodeShareData(encoded) {
+  try {
+    var padded = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    while (padded.length % 4) padded += '=';
+    return JSON.parse(decodeURIComponent(escape(atob(padded))));
+  } catch (err) { return null; }
+}
+
+function getShareUrl(set) {
+  var enc = encodeShareData(set);
+  return enc ? (location.href.split('#')[0] + '#/shared/' + enc) : null;
+}
+
+/* ══════════════════════════════════════
    SHARED COMPONENT: SET CARD
 ══════════════════════════════════════ */
 
@@ -322,9 +364,10 @@ function updateNavActive() {
 }
 
 function handleRoute() {
-  clearTimer();
+  clearTimer();        /* cancel any running game timer before switching pages */
   updateNavActive();
 
+  /* Parse the URL hash into route segments, e.g. #/study/set-123/flashcards → ['study','set-123','flashcards'] */
   var hash  = location.hash || '#/';
   var path  = hash.replace(/^#\/?/, ''); /* strip leading '#/' */
   var parts = path ? path.split('/') : [];
@@ -333,6 +376,10 @@ function handleRoute() {
     renderHome();
   } else if (parts[0] === 'library') {
     renderLibrary();
+  } else if (parts[0] === 'import') {
+    renderImport();
+  } else if (parts[0] === 'shared' && parts[1]) {
+    renderSharedSet(parts.slice(1).join('/'));
   } else if (parts[0] === 'create') {
     renderCreate(parts[1] || null);
   } else if (parts[0] === 'set' && parts[1]) {
@@ -342,6 +389,7 @@ function handleRoute() {
     if      (mode === 'flashcards') renderFlashcards(parts[1]);
     else if (mode === 'test')       renderTestMode(parts[1]);
     else if (mode === 'write')      renderWriteMode(parts[1]);
+    else if (mode === 'review')     renderReview(parts[1]);
     else renderHome();
   } else if (parts[0] === 'games') {
     if (parts.length <= 1 || !parts[1]) {
@@ -373,36 +421,61 @@ function handleRoute() {
 
 function renderHome() {
   announce('Home');
-  var sets = Storage.getAll();
+  var sets     = Storage.getAll();
   var featured = sets[0] || null;
-  var hour = new Date().getHours();
-  var greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  var streak   = Streak.get();
+
+  var modes = [
+    { label: 'Flashcards',      desc: 'Flip through cards at your own pace',      color: 'var(--accent)',  tag: 'a', href: featured ? '#/study/' + featured.id + '/flashcards' : '#/library' },
+    { label: 'Test',             desc: 'Multiple-choice questions',                color: 'var(--blue)',    tag: 'a', href: featured ? '#/study/' + featured.id + '/test'       : '#/library' },
+    { label: 'Write',            desc: 'Type your answers to learn faster',        color: 'var(--purple)',  tag: 'a', href: featured ? '#/study/' + featured.id + '/write'      : '#/library' },
+    { label: 'Match',            desc: 'Race to match terms to definitions',       color: 'var(--amber)',   tag: 'a', href: '#/games' },
+    { label: 'Games',            desc: 'Hangman, Survival, Speed & more',          color: 'var(--green)',   tag: 'a', href: '#/games' },
+    { label: 'Generate with AI', desc: 'Create a set instantly with Gemini AI',   color: 'var(--purple)',  tag: 'button', id: 'home-ai-btn' },
+  ];
+
+  var modesTilesHTML = modes.map(function (m) {
+    var style = ' style="--hmt-color:' + m.color + '"';
+    if (m.tag === 'a') {
+      return '<a href="' + m.href + '" class="home-mode-tile"' + style + '>' +
+        '<span class="hmt-label">' + m.label + '</span>' +
+        '<span class="hmt-desc">'  + m.desc  + '</span>' +
+        '</a>';
+    }
+    return '<button type="button" class="home-mode-tile" id="' + (m.id || '') + '"' + style + '>' +
+      '<span class="hmt-label">' + m.label + '</span>' +
+      '<span class="hmt-desc">'  + m.desc  + '</span>' +
+      '</button>';
+  }).join('');
 
   $app.innerHTML =
     '<section class="page home-page animate-fade-up" aria-labelledby="home-heading">' +
 
-      /* ── Greeting ── */
-      '<header class="home-greeting">' +
-        '<div>' +
-          '<h1 id="home-heading" class="home-greeting-text">' + e(greeting) + '</h1>' +
-          '<p class="home-greeting-sub">What will you study today?</p>' +
+      /* ── Hero ── */
+      '<div class="home-hero">' +
+        '<img src="FlashForge Logo.png" alt="" class="home-hero-logo" aria-hidden="true" />' +
+        '<h1 id="home-heading" class="home-hero-title">Study <span class="home-hero-accent">smarter</span>,<br>not harder.</h1>' +
+        '<p class="home-hero-sub">Flashcards, tests, games, and AI — everything you need to master any topic.</p>' +
+        '<div class="home-hero-actions">' +
+          '<a href="#/create" class="btn btn-primary btn-lg">+ Create a set</a>' +
+          '<a href="#/library" class="btn btn-ghost btn-lg">Browse library</a>' +
         '</div>' +
-        '<a href="#/create" class="btn btn-primary">New Set</a>' +
-      '</header>' +
-
-      /* ── Search ── */
-      '<div class="home-search-wrap" role="search">' +
-        '<label for="home-q" class="sr-only">Search your sets</label>' +
-        '<input id="home-q" type="search" class="input home-search-input" placeholder="Search your sets..." autocomplete="off" />' +
+        (streak.current >= 1 ? streakCalloutHTML(streak) : '') +
       '</div>' +
+
+      /* ── Study modes ── */
+      '<section class="home-modes-section" aria-label="Ways to study">' +
+        '<p class="home-modes-eyebrow">Ways to study</p>' +
+        '<div class="home-modes-grid">' + modesTilesHTML + '</div>' +
+      '</section>' +
 
       /* ── Featured "continue studying" card ── */
       (featured
-        ? '<section class="mt-4" aria-labelledby="continue-heading">' +
-            '<header class="home-section-header">' +
+        ? '<section class="home-featured-section" aria-labelledby="continue-heading">' +
+            '<div class="home-featured-band">' +
               '<h2 id="continue-heading" class="section-eyebrow">Continue studying</h2>' +
-              '<a href="#/set/' + e(featured.id) + '" class="link-subtle">View set</a>' +
-            '</header>' +
+              '<a href="#/set/' + e(featured.id) + '" class="link-subtle">View set →</a>' +
+            '</div>' +
             '<article class="featured-card card" id="featured-card"></article>' +
           '</section>'
         : ''
@@ -410,14 +483,25 @@ function renderHome() {
 
       /* ── Your sets ── */
       '<section class="mt-4" aria-labelledby="your-sets-heading">' +
-        '<header class="home-section-header">' +
-          '<h2 id="your-sets-heading">' + (sets.length > 0 ? 'Your sets' : '') + '</h2>' +
-          (sets.length > 0 ? '<a href="#/library" class="link-subtle">See all</a>' : '') +
-        '</header>' +
+        '<div class="home-sets-band">' +
+          (sets.length > 0 ? '<h2 id="your-sets-heading">Your sets</h2>' : '<h2 id="your-sets-heading"></h2>') +
+          (sets.length > 0
+            ? '<div class="home-sets-search" role="search">' +
+                '<label for="home-q" class="sr-only">Search your sets</label>' +
+                '<input id="home-q" type="search" class="input" placeholder="Search sets…" autocomplete="off" />' +
+              '</div>' +
+              '<a href="#/library" class="link-subtle">See all →</a>'
+            : ''
+          ) +
+        '</div>' +
         '<ul class="card-grid" role="list" id="home-grid"></ul>' +
       '</section>' +
 
     '</section>';
+
+  /* Wire up AI tile */
+  var aiBtn = document.getElementById('home-ai-btn');
+  if (aiBtn) aiBtn.addEventListener('click', function () { openAIDialog(function () {}); });
 
   /* Build featured card */
   if (featured) {
@@ -463,14 +547,15 @@ function renderHome() {
 
     if (filtered.length === 0 && sets.length === 0) {
       grid.innerHTML =
-        '<li class="home-empty" style="grid-column:1/-1">' +
-          '<p>You have no sets yet.</p>' +
-          '<a href="#/create" class="btn btn-primary" style="margin-top:.75rem">Create your first set</a>' +
+        '<li class="home-empty-state">' +
+          '<h3>No sets yet</h3>' +
+          '<p>Create your first flashcard set to start studying.</p>' +
+          '<a href="#/create" class="btn btn-primary" style="margin-top:.25rem">Create your first set</a>' +
         '</li>';
       return;
     }
     if (filtered.length === 0) {
-      grid.innerHTML = '<li style="grid-column:1/-1;color:var(--text-3)">No sets match your search.</li>';
+      grid.innerHTML = '<li style="grid-column:1/-1;color:var(--text-3);padding:2rem 0">No sets match your search.</li>';
       return;
     }
 
@@ -485,6 +570,258 @@ function renderHome() {
 
   var searchEl = document.getElementById('home-q');
   if (searchEl) searchEl.addEventListener('input', function () { renderGrid(this.value); });
+}
+
+/* ══════════════════════════════════════
+   PAGE: SHARED SET (view-only)
+══════════════════════════════════════ */
+
+function renderSharedSet(encoded) {
+  var set = decodeShareData(encoded);
+
+  if (!set || !set.title || !Array.isArray(set.cards) || !set.cards.length) {
+    $app.innerHTML =
+      '<section class="page animate-fade-up">' +
+        '<div class="empty-state">' +
+          '<h2>Link not found</h2>' +
+          '<p>This share link is invalid or the set data is missing.</p>' +
+          '<a href="#/" class="btn btn-primary" style="margin-top:.75rem">Go Home</a>' +
+        '</div>' +
+      '</section>';
+    return;
+  }
+
+  announce(set.title);
+
+  $app.innerHTML =
+    '<section class="page animate-fade-up" aria-labelledby="shared-heading">' +
+      '<header class="detail-header">' +
+        '<a href="#/" class="btn btn-ghost btn-sm">← Home</a>' +
+        '<button id="shared-import" type="button" class="btn btn-primary btn-sm">+ Add to My Library</button>' +
+      '</header>' +
+
+      '<div class="mt-2">' +
+        '<h1 id="shared-heading"></h1>' +
+        (set.description ? '<p class="detail-desc"></p>' : '') +
+        '<div class="flex gap-sm items-center mt-2">' +
+          '<span class="tag">' + e(set.category || 'General') + '</span>' +
+          '<span class="tag">' + set.cards.length + ' card' + (set.cards.length !== 1 ? 's' : '') + '</span>' +
+          '<span class="tag tag-accent">Shared</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<section class="mt-4" aria-labelledby="shared-cards-heading">' +
+        '<h2 id="shared-cards-heading">All Cards (' + set.cards.length + ')</h2>' +
+        '<ol class="all-cards-list mt-2" id="shared-cards-list" aria-label="All flashcards"></ol>' +
+      '</section>' +
+    '</section>';
+
+  document.getElementById('shared-heading').textContent = set.title;
+  if (set.description) document.querySelector('.detail-desc').textContent = set.description;
+
+  var ol = document.getElementById('shared-cards-list');
+  set.cards.forEach(function (card, i) {
+    var li = document.createElement('li');
+    li.className = 'card all-card';
+    li.innerHTML =
+      '<span class="all-card-num" aria-hidden="true">' + (i + 1) + '</span>' +
+      '<div class="all-card-term"></div>' +
+      '<div class="all-card-sep" aria-hidden="true"></div>' +
+      '<div class="all-card-def"></div>';
+    li.querySelector('.all-card-term').textContent = card.term;
+    li.querySelector('.all-card-def').textContent  = card.definition;
+    ol.appendChild(li);
+  });
+
+  document.getElementById('shared-import').addEventListener('click', function () {
+    var cards = set.cards.map(function (c, i) {
+      return { id: 'imp-' + Date.now() + '-' + i, term: String(c.term), definition: String(c.definition) };
+    });
+    var id = Storage.add({ title: set.title, description: set.description || '', category: set.category || 'Other', cards: cards });
+    showToast('"' + set.title + '" added to your library');
+    navigate('#/set/' + id);
+  });
+}
+
+/* ══════════════════════════════════════
+   PAGE: IMPORT
+══════════════════════════════════════ */
+
+/* Split a single CSV/TSV line, respecting double-quoted fields */
+function splitCSVLine(line, delim) {
+  var result = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; } /* escaped quote */
+      else inQ = !inQ;
+    } else if (ch === delim && !inQ) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+/* Parse pasted or file text into { id, term, definition } cards.
+   Auto-detects tab (Quizlet), comma, or semicolon as the delimiter. */
+function parseImportText(raw) {
+  var lines = raw.trim().split(/\r?\n/).filter(function (l) { return l.trim(); });
+  if (!lines.length) return [];
+
+  var first = lines[0];
+  var delim = first.indexOf('\t') !== -1 ? '\t'
+            : first.indexOf(',')  !== -1 ? ','
+            : ';';
+
+  var cards = [];
+  lines.forEach(function (line, i) {
+    var parts = delim === '\t' ? line.split('\t') : splitCSVLine(line, delim);
+    var term  = (parts[0] || '').trim().replace(/^"|"$/g, '').trim();
+    var def   = (parts[1] || '').trim().replace(/^"|"$/g, '').trim();
+    if (term && def) cards.push({ id: 'imp-' + Date.now() + '-' + i, term: term, definition: def });
+  });
+  return cards;
+}
+
+function renderImport() {
+  announce('Import Flashcards');
+
+  $app.innerHTML =
+    '<section class="page animate-fade-up" aria-labelledby="import-heading">' +
+      '<header class="create-header">' +
+        '<div>' +
+          '<h1 id="import-heading">Import Flashcards</h1>' +
+          '<p style="color:var(--text-3);font-size:.875rem;margin-top:.25rem">Paste from Quizlet or upload a CSV file</p>' +
+        '</div>' +
+        '<a href="#/library" class="btn btn-ghost">Cancel</a>' +
+      '</header>' +
+
+      '<div class="card import-card mt-3">' +
+        '<div class="import-body">' +
+          '<div class="field">' +
+            '<label for="import-text">Paste your cards</label>' +
+            '<textarea id="import-text" class="input import-textarea" rows="8" ' +
+              'placeholder="Paste Quizlet export or CSV here:\n\nterm1\tdefinition1\nterm2\tdefinition2\n\nSupports tab-separated, comma-separated, and semicolon-separated formats."' +
+            '></textarea>' +
+            '<p class="field-hint">Tip: in Quizlet, go to a set → ··· → Export to copy tab-separated text</p>' +
+          '</div>' +
+          '<div class="import-or-row"><div class="import-or-line"></div><span class="import-or-label">or</span><div class="import-or-line"></div></div>' +
+          '<div class="field">' +
+            '<label for="import-file">Upload a CSV or TSV file</label>' +
+            '<input id="import-file" type="file" accept=".csv,.tsv,.txt" class="input" />' +
+          '</div>' +
+          '<span id="import-top-error" class="field-error" role="alert"></span>' +
+          '<button id="import-parse" type="button" class="btn btn-primary">Preview cards</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div id="import-preview" hidden>' +
+        '<div class="card mt-3" style="padding:1.25rem">' +
+          '<h2 id="import-preview-title" class="section-eyebrow" style="margin-bottom:.75rem">Preview — 0 cards</h2>' +
+          '<ol id="import-card-list" class="all-cards-list"></ol>' +
+        '</div>' +
+        '<div class="card mt-3" style="padding:1.25rem">' +
+          '<div class="create-meta-fields">' +
+            '<div class="field">' +
+              '<label for="import-title">Set title</label>' +
+              '<input id="import-title" type="text" class="input" placeholder="e.g. Spanish Vocab, Chapter 4 Terms…" />' +
+              '<span id="import-title-error" class="field-error" role="alert"></span>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label for="import-cat">Category</label>' +
+              '<select id="import-cat" class="input">' +
+                ['Geography','Entertainment','Lifestyle','Technology','Science','History','Language','Math','Other'].map(function (c) {
+                  return '<option value="' + e(c) + '">' + e(c) + '</option>';
+                }).join('') +
+              '</select>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="create-footer">' +
+          '<a href="#/library" class="btn btn-ghost">Cancel</a>' +
+          '<button id="import-save" type="button" class="btn btn-primary btn-lg">Create Set</button>' +
+        '</div>' +
+      '</div>' +
+
+    '</section>';
+
+  var parsedCards = [];
+
+  function doParse(text) {
+    parsedCards = parseImportText(text);
+    var errEl        = document.getElementById('import-top-error');
+    var previewEl    = document.getElementById('import-preview');
+    var previewTitle = document.getElementById('import-preview-title');
+    var listEl       = document.getElementById('import-card-list');
+
+    if (!parsedCards.length) {
+      errEl.textContent = 'No valid term/definition pairs found — check your format and try again.';
+      previewEl.hidden = true;
+      return;
+    }
+
+    errEl.textContent = '';
+    previewTitle.textContent = 'Preview — ' + parsedCards.length + ' card' + (parsedCards.length !== 1 ? 's' : '');
+    listEl.innerHTML = '';
+    parsedCards.forEach(function (card, i) {
+      var li = document.createElement('li');
+      li.className = 'card all-card';
+      li.innerHTML =
+        '<span class="all-card-num">' + (i + 1) + '</span>' +
+        '<div class="all-card-term"></div>' +
+        '<div class="all-card-sep" aria-hidden="true"></div>' +
+        '<div class="all-card-def"></div>';
+      li.querySelector('.all-card-term').textContent = card.term;
+      li.querySelector('.all-card-def').textContent  = card.definition;
+      listEl.appendChild(li);
+    });
+
+    previewEl.hidden = false;
+    previewEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  document.getElementById('import-parse').addEventListener('click', function () {
+    var text = document.getElementById('import-text').value;
+    if (text.trim()) { doParse(text); return; }
+    var file = document.getElementById('import-file').files[0];
+    if (file) {
+      var reader = new FileReader();
+      reader.onload = function (ev) { doParse(ev.target.result); };
+      reader.readAsText(file);
+    } else {
+      document.getElementById('import-top-error').textContent = 'Paste text or upload a file first.';
+    }
+  });
+
+  /* Auto-fill textarea when a file is selected */
+  document.getElementById('import-file').addEventListener('change', function () {
+    var file = this.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      document.getElementById('import-text').value = ev.target.result;
+      document.getElementById('import-top-error').textContent = '';
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('import-save').addEventListener('click', function () {
+    if (!parsedCards.length) return;
+    var title = document.getElementById('import-title').value.trim();
+    if (!title) {
+      var titleErr = document.getElementById('import-title-error');
+      titleErr.textContent = 'Please enter a title for this set.';
+      document.getElementById('import-title').focus();
+      return;
+    }
+    var cat = document.getElementById('import-cat').value;
+    var id  = Storage.add({ title: title, description: '', category: cat, cards: parsedCards });
+    showToast('Imported ' + parsedCards.length + ' cards into "' + title + '"');
+    navigate('#/set/' + id);
+  });
 }
 
 /* ══════════════════════════════════════
@@ -504,7 +841,10 @@ function renderLibrary() {
           '<h1 id="library-heading">My Library</h1>' +
           '<p id="lib-count" aria-live="polite" style="color:var(--text-dim);margin-top:.2rem">' + sets.length + ' set' + (sets.length !== 1 ? 's' : '') + '</p>' +
         '</div>' +
-        '<a href="#/create" class="btn btn-primary">+ New Set</a>' +
+        '<div class="flex gap-sm">' +
+          '<a href="#/import" class="btn btn-ghost">Import</a>' +
+          '<a href="#/create" class="btn btn-primary">+ New Set</a>' +
+        '</div>' +
       '</header>' +
 
       '<search aria-label="Search and filter sets">' +
@@ -666,14 +1006,27 @@ function renderCreate(editId) {
 
       li.innerHTML =
         '<span class="create-card-num" aria-hidden="true">' + (idx + 1) + '</span>' +
-        '<div class="create-card-fields">' +
-          '<div class="field">' +
-            '<label for="term-' + e(card.id) + '">Term</label>' +
-            '<input id="term-' + e(card.id) + '" type="text" class="input" placeholder="Enter term, question, or prompt" value="' + e(card.term) + '" />' +
+        '<div class="create-card-main">' +
+          '<div class="create-card-fields">' +
+            '<div class="field">' +
+              '<label for="term-' + e(card.id) + '">Term</label>' +
+              '<input id="term-' + e(card.id) + '" type="text" class="input" placeholder="Enter term, question, or prompt" value="' + e(card.term) + '" />' +
+            '</div>' +
+            '<div class="field">' +
+              '<label for="def-' + e(card.id) + '">Definition / Answer</label>' +
+              '<textarea id="def-' + e(card.id) + '" class="input" placeholder="Enter the definition, answer, or description" rows="2">' + e(card.definition) + '</textarea>' +
+            '</div>' +
           '</div>' +
-          '<div class="field">' +
-            '<label for="def-' + e(card.id) + '">Definition / Answer</label>' +
-            '<textarea id="def-' + e(card.id) + '" class="input" placeholder="Enter the definition, answer, or description" rows="2">' + e(card.definition) + '</textarea>' +
+          '<div class="card-img-section">' +
+            '<div class="card-img-add">' +
+              '<label class="btn btn-ghost btn-sm card-img-upload-label">Upload image<input type="file" class="card-img-file" accept="image/*" /></label>' +
+              '<input type="url" class="input card-img-url-input" placeholder="…or paste image URL" />' +
+              '<button type="button" class="btn btn-ghost btn-sm card-img-url-btn">Add</button>' +
+            '</div>' +
+            '<div class="card-img-preview" hidden>' +
+              '<img class="card-img-thumb" alt="Card image" />' +
+              '<button type="button" class="btn btn-ghost btn-icon card-img-clear" aria-label="Remove image">✕</button>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="create-card-actions" role="group" aria-label="Card ' + (idx + 1) + ' actions">' +
@@ -685,6 +1038,34 @@ function renderCreate(editId) {
       /* Sync inputs to cards array */
       li.querySelector('[id="term-' + card.id + '"]').addEventListener('input', function (ev) { card.term = ev.target.value; });
       li.querySelector('[id="def-'  + card.id + '"]').addEventListener('input', function (ev) { card.definition = ev.target.value; });
+
+      /* Image attachment */
+      function syncImgUI(src) {
+        var addEl     = li.querySelector('.card-img-add');
+        var previewEl = li.querySelector('.card-img-preview');
+        var thumbEl   = li.querySelector('.card-img-thumb');
+        if (src) { thumbEl.src = src; addEl.hidden = true;  previewEl.hidden = false; }
+        else      { thumbEl.src = '';  addEl.hidden = false; previewEl.hidden = true;
+                    li.querySelector('.card-img-url-input').value = ''; }
+      }
+      li.querySelector('.card-img-file').addEventListener('change', function () {
+        var file = this.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { showToast('Please select an image file.'); return; }
+        if (file.size > 2 * 1024 * 1024)     { showToast('Image too large — max 2 MB.'); return; }
+        var reader = new FileReader();
+        reader.onload = function (ev) { card.image = ev.target.result; syncImgUI(card.image); };
+        reader.readAsDataURL(file);
+      });
+      li.querySelector('.card-img-url-btn').addEventListener('click', function () {
+        var url = li.querySelector('.card-img-url-input').value.trim();
+        if (!url.startsWith('http')) { showToast('Please enter a valid image URL.'); return; }
+        card.image = url; syncImgUI(card.image);
+      });
+      li.querySelector('.card-img-clear').addEventListener('click', function () {
+        card.image = ''; syncImgUI('');
+      });
+      if (card.image) syncImgUI(card.image);
 
       /* Move */
       li.querySelectorAll('[data-move]').forEach(function (btn) {
@@ -782,6 +1163,7 @@ function renderSetDetail(setId) {
       '<header class="detail-header">' +
         '<a href="#/library" class="btn btn-ghost btn-sm">&larr; Back</a>' +
         '<nav class="detail-header-actions" aria-label="Set actions">' +
+          '<button id="btn-share" type="button" class="btn btn-ghost btn-sm">Share</button>' +
           '<a href="#/create/' + e(set.id) + '" class="btn btn-ghost btn-sm">Edit</a>' +
           '<button id="btn-delete" type="button" class="btn btn-danger btn-sm">Delete</button>' +
         '</nav>' +
@@ -823,16 +1205,20 @@ function renderSetDetail(setId) {
       '<section class="mt-4" aria-labelledby="study-heading">' +
         '<h2 id="study-heading">Study</h2>' +
         '<ul class="modes-grid mt-2" role="list">' +
-          [
-            { href: '#/study/'+set.id+'/flashcards', label:'Flashcards', desc:'Flip through cards at your own pace'   },
-            { href: '#/study/'+set.id+'/write',      label:'Write Mode', desc:'Type the definition from memory'       },
-            { href: '#/study/'+set.id+'/test',       label:'Test Mode',  desc:'Multiple-choice test on the full set'  },
-          ].map(function (m) {
-            return '<li><a href="' + m.href + '" class="mode-card card">' +
-              '<span class="mode-label">' + e(m.label) + '</span>' +
-              '<span class="mode-desc">' + e(m.desc) + '</span>' +
-            '</a></li>';
-          }).join('') +
+          (function () {
+            var due = SR.dueCount(set.id, set.cards);
+            return [
+              { href: '#/study/'+set.id+'/flashcards', label:'Flashcards', desc:'Flip through cards at your own pace'   },
+              { href: '#/study/'+set.id+'/write',      label:'Write Mode', desc:'Type the definition from memory'       },
+              { href: '#/study/'+set.id+'/test',       label:'Test Mode',  desc:'Multiple-choice test on the full set'  },
+              { href: '#/study/'+set.id+'/review',     label:'Review' + (due > 0 ? ' · ' + due + ' due' : ''), desc: due > 0 ? due + ' card' + (due !== 1 ? 's' : '') + ' scheduled for today' : 'All caught up — check back later' },
+            ].map(function (m) {
+              return '<li><a href="' + m.href + '" class="mode-card card">' +
+                '<span class="mode-label">' + e(m.label) + '</span>' +
+                '<span class="mode-desc">' + e(m.desc) + '</span>' +
+              '</a></li>';
+            }).join('');
+          })() +
         '</ul>' +
       '</section>' +
 
@@ -854,6 +1240,13 @@ function renderSetDetail(setId) {
         '<h2 id="allcards-heading">All Cards (' + set.cards.length + ')</h2>' +
         '<ol class="all-cards-list mt-2" id="all-cards" aria-label="All flashcards"></ol>' +
       '</section>' +
+
+      /* Score history */
+      '<section class="mt-4" aria-labelledby="history-heading">' +
+        '<h2 id="history-heading">Score History</h2>' +
+        '<div class="card history-chart-wrap mt-2" id="history-chart-wrap"></div>' +
+      '</section>' +
+
     '</section>';
 
   /* Set text content safely */
@@ -867,9 +1260,11 @@ function renderSetDetail(setId) {
     li.className = 'card all-card';
     li.innerHTML =
       '<span class="all-card-num" aria-hidden="true">' + (i + 1) + '</span>' +
+      (card.image ? '<img class="all-card-img" alt="" />' : '') +
       '<div class="all-card-term"></div>' +
       '<div class="all-card-sep" aria-hidden="true"></div>' +
       '<div class="all-card-def"></div>';
+    if (card.image) li.querySelector('.all-card-img').src = card.image;
     li.querySelector('.all-card-term').textContent = card.term;
     li.querySelector('.all-card-def').textContent  = card.definition;
     ol.appendChild(li);
@@ -905,6 +1300,24 @@ function renderSetDetail(setId) {
     isFlipped = false; updatePreview();
   });
 
+  /* Share */
+  document.getElementById('btn-share').addEventListener('click', function () {
+    var url = getShareUrl(set);
+    if (!url) { showToast('Could not generate share link.'); return; }
+    var btn = this;
+    function flash() {
+      var orig = btn.textContent;
+      btn.textContent = 'Link copied!';
+      btn.disabled = true;
+      setTimeout(function () { btn.textContent = orig; btn.disabled = false; }, 2200);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(flash).catch(function () { prompt('Copy this share link:', url); });
+    } else {
+      prompt('Copy this share link:', url);
+    }
+  });
+
   /* Delete */
   document.getElementById('btn-delete').addEventListener('click', function () {
     showConfirm('Delete "' + set.title + '"? This cannot be undone.', function () {
@@ -913,18 +1326,25 @@ function renderSetDetail(setId) {
       navigate('#/library');
     });
   });
+
+  /* Score history chart */
+  var chartWrap = document.getElementById('history-chart-wrap');
+  if (chartWrap) {
+    var histEntries = History.getForSet(set.id).slice(-30); /* show last 30 sessions */
+    chartWrap.innerHTML = buildHistoryChart(histEntries);
+  }
 }
 
 /* ══════════════════════════════════════
    PAGE: FLASHCARDS
 ══════════════════════════════════════ */
 
-function renderFlashcards(setId) {
+function renderFlashcards(setId, overrideDeck) {
   var set = Storage.getOne(setId);
   if (!set) { navigate('#/library'); return; }
   announce('Flashcards — ' + set.title);
 
-  var deck     = shuffle(set.cards.slice());
+  var deck     = shuffle((overrideDeck || set.cards).slice());
   var index    = 0;
   var known    = {};
   var missed   = {};
@@ -954,6 +1374,7 @@ function renderFlashcards(setId) {
           '<div class="flip-card-inner">' +
             '<div class="flip-card-front">' +
               '<header><small>Term</small></header>' +
+              (card.image ? '<img class="fc-card-img" id="fc-card-img" alt="" />' : '') +
               '<p class="fc-card-text" id="fc-term"></p>' +
               '<footer><small>Click or press Space to flip</small></footer>' +
             '</div>' +
@@ -975,6 +1396,7 @@ function renderFlashcards(setId) {
     /* Set text content safely */
     document.getElementById('fc-term').textContent = card.term;
     document.getElementById('fc-def').textContent  = card.definition;
+    if (card.image) document.getElementById('fc-card-img').src = card.image;
 
     var fcCard = document.getElementById('fc-card');
     fcCard.addEventListener('click', function () { isFlipped = !isFlipped; render(); });
@@ -988,9 +1410,11 @@ function renderFlashcards(setId) {
 
     if (isFlipped) {
       document.getElementById('fc-got').addEventListener('click', function () {
+        SR.update(setId, card.id, 4); /* Got It → SM-2 grade 4 */
         known[card.id] = true; isFlipped = false; index++; render();
       });
       document.getElementById('fc-miss').addEventListener('click', function () {
+        SR.update(setId, card.id, 1); /* Missed → SM-2 grade 1 */
         missed[card.id] = true; isFlipped = false; index++; render();
       });
     }
@@ -1000,6 +1424,8 @@ function renderFlashcards(setId) {
     var knownCount  = Object.keys(known).length;
     var missedCount = Object.keys(missed).length;
     var pct = deck.length > 0 ? Math.round((knownCount / deck.length) * 100) : 0;
+    History.record({ setId: setId, mode: 'Flashcards', pct: pct, correct: knownCount, total: deck.length });
+    var fcStreak = Streak.recordStudy();
 
     $app.innerHTML =
       '<section class="page fc-done animate-fade-up" aria-labelledby="fc-done-heading">' +
@@ -1016,6 +1442,7 @@ function renderFlashcards(setId) {
             '<div><dd style="color:var(--green)">' + knownCount + '</dd><dt>Got It</dt></div>' +
             '<div><dd style="color:var(--red)">' + missedCount + '</dd><dt>Missed</dt></div>' +
           '</dl>' +
+          streakCalloutHTML(fcStreak) +
           '<nav class="fc-done-actions" aria-label="Next steps">' +
             (missedCount > 0 ? '<button id="study-missed" type="button" class="btn btn-pink btn-lg">Study ' + missedCount + ' Missed Card' + (missedCount !== 1 ? 's' : '') + '</button>' : '') +
             '<button id="restart-all" type="button" class="btn btn-primary btn-lg">Restart All</button>' +
@@ -1041,6 +1468,38 @@ function renderFlashcards(setId) {
 }
 
 /* ══════════════════════════════════════
+   PAGE: SPACED REVIEW
+══════════════════════════════════════ */
+
+function renderReview(setId) {
+  var set = Storage.getOne(setId);
+  if (!set) { navigate('#/library'); return; }
+
+  var due = SR.getDue(setId, set.cards);
+
+  if (due.length === 0) {
+    announce('Review — all caught up');
+    $app.innerHTML =
+      '<section class="page fc-done animate-fade-up" aria-labelledby="review-done-heading">' +
+        '<article class="card fc-done-card">' +
+          '<p class="result-label">All clear!</p>' +
+          '<h1 id="review-done-heading">Nothing due today</h1>' +
+          '<p style="color:var(--text-2);font-size:.9rem;max-width:300px;text-align:center;line-height:1.6">' +
+            'Every card in this set is scheduled for a future date. Keep it up!' +
+          '</p>' +
+          '<nav class="fc-done-actions" style="margin-top:1.5rem">' +
+            '<a href="#/set/' + e(setId) + '" class="btn btn-primary btn-lg">Back to Set</a>' +
+          '</nav>' +
+        '</article>' +
+      '</section>';
+    return;
+  }
+
+  /* Reuse flashcard mode with only the due cards */
+  renderFlashcards(setId, due);
+}
+
+/* ══════════════════════════════════════
    PAGE: TEST MODE
 ══════════════════════════════════════ */
 
@@ -1052,7 +1511,7 @@ function renderTestMode(setId) {
 
   var questions = shuffle(set.cards).map(function (card) {
     var wrong = shuffle(set.cards.filter(function (c) { return c.id !== card.id; })).slice(0, 3).map(function (c) { return c.definition; });
-    return { question: card.term, choices: shuffle(wrong.concat(card.definition)), correct: card.definition };
+    return { question: card.term, choices: shuffle(wrong.concat(card.definition)), correct: card.definition, image: card.image || '' };
   });
 
   var index   = 0;
@@ -1073,6 +1532,7 @@ function renderTestMode(setId) {
         '<progress value="' + pct + '" max="100" class="mt-2 mb-3" aria-label="Progress: ' + (index + 1) + ' of ' + questions.length + '"></progress>' +
         '<article class="test-question card animate-fade-up">' +
           '<p class="test-q-label" aria-hidden="true">Question ' + (index + 1) + '</p>' +
+          (q.image ? '<img class="question-img" id="q-img" alt="" />' : '') +
           '<h1 id="test-q-heading" class="test-q-text"></h1>' +
           '<div class="test-choices" role="group" aria-label="Answer choices" id="choices"></div>' +
           '<div id="test-feedback" hidden class="test-feedback"></div>' +
@@ -1080,6 +1540,7 @@ function renderTestMode(setId) {
       '</section>';
 
     document.getElementById('test-q-heading').textContent = q.question;
+    if (q.image) document.getElementById('q-img').src = q.image;
 
     var choicesEl = document.getElementById('choices');
     q.choices.forEach(function (choice, ci) {
@@ -1138,6 +1599,8 @@ function renderTestMode(setId) {
   function showResults() {
     var correct = answers.filter(function (a) { return a.isCorrect; }).length;
     var pct = Math.round((correct / questions.length) * 100);
+    History.record({ setId: setId, mode: 'Test', pct: pct, correct: correct, total: questions.length });
+    var testStreak = Streak.recordStudy();
 
     $app.innerHTML =
       '<section class="page test-done animate-fade-up" aria-labelledby="test-done-heading">' +
@@ -1147,6 +1610,7 @@ function renderTestMode(setId) {
           '<p class="test-score-pill" style="background:' + (pct >= 70 ? 'var(--green-dim)' : 'var(--red-dim)') + ';color:' + (pct >= 70 ? 'var(--green)' : 'var(--red)') + '">' +
             correct + ' / ' + questions.length + ' correct — ' + pct + '%' +
           '</p>' +
+          streakCalloutHTML(testStreak) +
           '<ol class="test-review" aria-label="Review" id="review-list"></ol>' +
           '<nav class="test-done-actions" aria-label="Next steps">' +
             '<button id="try-again" type="button" class="btn btn-primary btn-lg">Try Again</button>' +
@@ -1215,7 +1679,9 @@ function renderWriteMode(setId) {
   var result  = null;
   var answers = [];
 
+  /* Strip punctuation and case so "café" and "Cafe" both grade the same */
   function normalize(s) { return String(s).trim().toLowerCase().replace(/[^a-z0-9\s]/g, ''); }
+  /* Grade the user's answer: exact → 'correct', substring match (>2 chars) → 'close', else → 'wrong' */
   function grade(input, correct) {
     var a = normalize(input), b = normalize(correct);
     if (a === b) return 'correct';
@@ -1236,6 +1702,7 @@ function renderWriteMode(setId) {
         '<progress value="' + Math.round((index / deck.length) * 100) + '" max="100" class="mt-2 mb-3" aria-label="Progress"></progress>' +
         '<article class="write-card card animate-fade-up">' +
           '<p class="write-prompt-label" aria-hidden="true">Write the definition for:</p>' +
+          (card.image ? '<img class="question-img" id="write-img" alt="" />' : '') +
           '<h1 id="write-heading" class="write-term"></h1>' +
           '<form class="write-form" id="write-form" novalidate>' +
             '<label for="write-input" class="sr-only">Your definition</label>' +
@@ -1246,6 +1713,7 @@ function renderWriteMode(setId) {
       '</section>';
 
     document.getElementById('write-heading').textContent = card.term;
+    if (card.image) document.getElementById('write-img').src = card.image;
 
     var input  = document.getElementById('write-input');
     var fbEl   = document.getElementById('write-fb');
@@ -1291,6 +1759,9 @@ function renderWriteMode(setId) {
     var correct = answers.filter(function (a) { return a.grade === 'correct'; }).length;
     var close   = answers.filter(function (a) { return a.grade === 'close'; }).length;
     var wrong   = answers.filter(function (a) { return a.grade === 'wrong'; }).length;
+    var writePct = deck.length > 0 ? Math.round(((correct + close * 0.5) / deck.length) * 100) : 0;
+    History.record({ setId: setId, mode: 'Write', pct: writePct, correct: correct, total: deck.length });
+    var writeStreak = Streak.recordStudy();
 
     $app.innerHTML =
       '<section class="page write-done animate-fade-up" aria-labelledby="write-done-heading">' +
@@ -1302,6 +1773,7 @@ function renderWriteMode(setId) {
             '<div><dd style="color:var(--amber)">' + close + '</dd><dt>Close</dt></div>' +
             '<div><dd style="color:var(--red)">' + wrong + '</dd><dt>Wrong</dt></div>' +
           '</dl>' +
+          streakCalloutHTML(writeStreak) +
           '<ol class="write-review mt-2" id="write-review" aria-label="Review"></ol>' +
           '<nav class="write-done-actions" aria-label="Next steps">' +
             '<button id="wr-restart" type="button" class="btn btn-primary btn-lg">Try Again</button>' +
@@ -1426,6 +1898,76 @@ var ALL_GAMES = [
     desc:'Race through the entire deck as fast as possible.', min:1
   },
 ];
+
+/* ══════════════════════════════════════
+   SCORE HISTORY CHART (inline SVG)
+══════════════════════════════════════ */
+
+var HISTORY_MODE_COLOR = {
+  'Flashcards': '#79C728',
+  'Test':       '#3b82f6',
+  'Write':      '#a855f7',
+  'Review':     '#f59e0b',
+};
+
+function buildHistoryChart(entries) {
+  if (!entries.length) {
+    return '<p class="history-empty">No sessions recorded yet — complete a study mode to start tracking.</p>';
+  }
+
+  var W = 440, H = 130;
+  var PL = 36, PR = 12, PT = 12, PB = 24;
+  var chartW = W - PL - PR;
+  var chartH = H - PT - PB;
+  var n = entries.length;
+
+  var points = entries.map(function (e, i) {
+    var x = PL + (n === 1 ? chartW / 2 : (i / (n - 1)) * chartW);
+    var y = PT + chartH - (e.pct / 100) * chartH;
+    return { x: x, y: y, e: e };
+  });
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="history-chart" aria-hidden="true">';
+
+  /* Grid lines at 0 / 50 / 100 % */
+  [0, 50, 100].forEach(function (val) {
+    var y = PT + chartH - (val / 100) * chartH;
+    svg += '<line x1="' + PL + '" y1="' + y.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="1"/>';
+    svg += '<text x="' + (PL - 4) + '" y="' + (y + 3.5).toFixed(1) + '" font-size="9" fill="var(--text-3)" text-anchor="end">' + val + '%</text>';
+  });
+
+  /* Connecting line */
+  if (n > 1) {
+    var pts = points.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
+    svg += '<polyline points="' + pts + '" fill="none" stroke="var(--border-2)" stroke-width="1.5" stroke-linejoin="round"/>';
+  }
+
+  /* Dots + x-axis date labels */
+  points.forEach(function (p) {
+    var color = HISTORY_MODE_COLOR[p.e.mode] || '#79C728';
+    var d = new Date(p.e.date);
+    var label = (d.getMonth() + 1) + '/' + d.getDate();
+    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="' + color + '"/>';
+    svg += '<text x="' + p.x.toFixed(1) + '" y="' + (H - 5) + '" font-size="8" fill="var(--text-3)" text-anchor="middle">' + label + '</text>';
+  });
+
+  svg += '</svg>';
+
+  /* Legend — only modes that appear in this data */
+  var seen = {}, modesUsed = [];
+  entries.forEach(function (e) { if (!seen[e.mode]) { seen[e.mode] = true; modesUsed.push(e.mode); } });
+
+  var legend = '<div class="history-legend">' +
+    modesUsed.map(function (m) {
+      return '<span class="history-legend-item">' +
+        '<span class="history-legend-dot" style="background:' + (HISTORY_MODE_COLOR[m] || '#79C728') + '"></span>' +
+        e(m) +
+      '</span>';
+    }).join('') +
+  '</div>';
+
+  return svg + legend;
+}
 
 /* ══════════════════════════════════════
    PAGE: GAMES HUB
@@ -2449,9 +2991,29 @@ function renderLightning(setId) {
 ══════════════════════════════════════ */
 
 window.addEventListener('hashchange', handleRoute);
+/* ══════════════════════════════════════
+   THEME TOGGLE
+══════════════════════════════════════ */
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('qf-theme', theme);
+  /* Highlight the active button inside the settings dialog */
+  var darkBtn  = document.getElementById('theme-dark-btn');
+  var lightBtn = document.getElementById('theme-light-btn');
+  if (darkBtn)  darkBtn.classList.toggle('settings-theme-btn-active',  theme === 'dark');
+  if (lightBtn) lightBtn.classList.toggle('settings-theme-btn-active', theme === 'light');
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   initDialogs();
   handleRoute();
+
+  /* Sync settings buttons with the theme already applied by the inline script */
+  applyTheme(localStorage.getItem('qf-theme') || 'dark');
+
+  document.getElementById('theme-dark-btn').addEventListener('click',  function () { applyTheme('dark');  });
+  document.getElementById('theme-light-btn').addEventListener('click', function () { applyTheme('light'); });
 
   /* Auth — show stored user immediately, then wait for Google SDK to load */
   Auth.onChange(updateAuthNav);
