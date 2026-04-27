@@ -1,8 +1,10 @@
 /* FlashForge — Firebase Authentication */
 var Auth = (function () {
-  var USER_KEY = 'qf-user';
+  var USER_KEY  = 'qf-user';
   var _onChange = null;
   var _db       = null;
+  var _authReady = false;
+  var _authReadyCbs = [];
 
   /* ── Helpers ── */
   function isConfigured() {
@@ -45,6 +47,12 @@ var Auth = (function () {
       } else {
         clearUser();
       }
+      /* Mark auth as resolved and flush any waiting callbacks */
+      if (!_authReady) {
+        _authReady = true;
+        _authReadyCbs.forEach(function (cb) { cb(); });
+        _authReadyCbs = [];
+      }
     });
 
     /* Handle redirect result after returning from Google sign-in on mobile */
@@ -84,5 +92,11 @@ var Auth = (function () {
 
   function onChange(cb) { _onChange = cb; }
 
-  return { getUser, setUser, clearUser, getDb, isConfigured, init, signIn, signOut, onChange };
+  /* Calls cb immediately if auth is already resolved, otherwise queues it */
+  function onReady(cb) {
+    if (_authReady) cb();
+    else _authReadyCbs.push(cb);
+  }
+
+  return { getUser, setUser, clearUser, getDb, isConfigured, init, signIn, signOut, onChange, onReady };
 })();
