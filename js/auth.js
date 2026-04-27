@@ -22,6 +22,10 @@ var Auth = (function () {
   }
   function getDb() { return _db; }
 
+  function isMobile() {
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  }
+
   /* ── Init ── */
   function init() {
     if (!isConfigured() || !window.firebase) return;
@@ -43,9 +47,14 @@ var Auth = (function () {
         clearUser();
       }
     });
+
+    /* Handle redirect result after returning from Google sign-in on mobile */
+    firebase.auth().getRedirectResult().catch(function (err) {
+      if (window.showToast) showToast('Sign-in failed: ' + err.message);
+    });
   }
 
-  /* ── Sign in (opens Google popup window) ── */
+  /* ── Sign in ── */
   function signIn() {
     if (!isConfigured()) {
       if (window.showToast) showToast('Firebase not configured — see js/firebase-config.js');
@@ -56,9 +65,13 @@ var Auth = (function () {
       return;
     }
     var provider = new firebase.auth.GoogleAuthProvider();
-    firebase.auth().signInWithPopup(provider).catch(function (err) {
-      if (window.showToast) showToast('Sign-in failed: ' + err.message);
-    });
+    if (isMobile()) {
+      firebase.auth().signInWithRedirect(provider);
+    } else {
+      firebase.auth().signInWithPopup(provider).catch(function (err) {
+        if (window.showToast) showToast('Sign-in failed: ' + err.message);
+      });
+    }
   }
 
   /* ── Sign out ── */
