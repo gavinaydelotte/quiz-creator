@@ -643,7 +643,7 @@ code { font-family: monospace; font-size: 0.85em; background: var(--surface3); p
   flex-wrap: wrap;
 }
 .home-sets-band h2 { flex-shrink: 0; }
-.home-sets-search  { flex: 1; min-width: 180px; max-width: 320px; }
+.home-sets-search  { flex: 1; min-width: 140px; max-width: 320px; }
 
 /* ── Empty state ── */
 .home-empty-state {
@@ -1594,9 +1594,10 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
   .create-header-actions .btn { flex: 1; justify-content: center; }
   .create-card   { flex-direction: column; }
   .create-card-actions { flex-direction: row; justify-content: flex-end; }
+  .card-img-url-input { min-width: 0; }
   .games-grid    { grid-template-columns: 1fr; }
   .match-grid    { grid-template-columns: repeat(2, 1fr); }
-  .match-tile    { min-height: 70px; font-size: 0.775rem; padding: 0.6rem 0.5rem; }
+  .match-tile    { min-height: 70px; font-size: 0.875rem; padding: 0.6rem 0.5rem; }
   .modes-grid    { grid-template-columns: 1fr; }
   .fc-page       { gap: 1rem; }
   .flip-card     { height: 220px; }
@@ -1608,6 +1609,26 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
   .preview-text { font-size: 0.9rem; }
   search { margin: 1rem 0; padding: 1rem 0; }
   .library-search { max-width: 100%; }
+  .home-sets-search { min-width: 0; max-width: 100%; }
+  dialog { top: 0.75rem; max-height: calc(100vh - 1.5rem); width: calc(100% - 1.5rem); }
+  .dialog-footer { flex-wrap: wrap; }
+  .dialog-footer .btn { flex: 1; justify-content: center; }
+
+  /* Multiplayer mobile */
+  .mp-page h1   { font-size: 1.35rem; }
+  .mp-options   { grid-template-columns: 1fr; }
+  .mp-score-num { font-size: 1.75rem; }
+  .mp-code-display { font-size: 2rem; letter-spacing: 0.2em; }
+  .mp-buzz-btn  { padding: 0.85rem 2rem; font-size: 1rem; width: 100%; }
+  .mp-buzz-row  { width: 100%; }
+  .mp-done-headline   { font-size: 1.35rem; }
+  .mp-done-scores     { gap: 1.25rem; }
+  .mp-done-score-num  { font-size: 2.25rem; }
+  .mp-scoreboard      { gap: 0.5rem; }
+  .mp-score           { min-width: 60px; }
+  .mp-card-text       { font-size: 1.05rem; }
+  .mp-done-actions    { flex-direction: column; align-items: stretch; }
+  .mp-done-actions .btn { justify-content: center; }
 }
 
 /* ══════════════════════════════════════
@@ -1617,7 +1638,7 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
 .mp-page h1 { font-size: 1.75rem; }
 .mp-sub     { color: var(--text-3); margin-top: 0.25rem; margin-bottom: 1.5rem; }
 .mp-options { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-@media (max-width: 560px) { .mp-options { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .mp-options { grid-template-columns: 1fr; } }
 .mp-card         { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
 .mp-card h2      { font-size: 1rem; margin: 0; }
 .mp-card-desc    { font-size: 0.875rem; color: var(--text-3); margin: 0; }
