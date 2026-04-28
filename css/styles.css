@@ -1521,29 +1521,8 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
 }
 .auth-dropdown-signout:hover { background: var(--red-dim); }
 
-/* ══════════════════════════════════════
-   MOBILE BOTTOM NAV
-══════════════════════════════════════ */
+/* Mobile bottom nav removed — top navbar used on all screen sizes */
 .mobile-nav { display: none; }
-
-@media (max-width: 600px) {
-  .mobile-nav {
-    display: flex;
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: 56px;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    z-index: 200;
-    gap: 0;
-  }
-
-  /* push page content above the mobile nav */
-  .page { padding-bottom: calc(56px + 1.5rem); }
-  .fc-done,
-  .sr-done,
-  .match-done { min-height: calc(100vh - var(--nav-h) - 56px); }
-}
 
 .mobile-nav-link {
   flex: 1;
@@ -1587,8 +1566,17 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
 }
 
 @media (max-width: 600px) {
-  .nav-links     { display: none; }
-  .nav-actions   { display: none; }  /* replaced by mobile nav */
+  /* Compact top navbar */
+  .main-nav        { padding: 0 0.5rem; gap: 0.25rem; }
+  .logo-img        { height: 34px; }
+  .nav-links       { gap: 0; }
+  .nav-link        { padding: 0.25rem 0.4rem; font-size: 0.72rem; }
+  .nav-actions     { gap: 0.25rem; }
+  #settings-btn    { display: none; }
+  .nav-create-label { display: none; }
+  .google-signin-btn span { display: none; }
+  .google-signin-btn { padding: 0.35rem 0.5rem; }
+
   .create-header { flex-wrap: wrap; gap: 0.75rem; }
   .create-header-actions { width: 100%; }
   .create-header-actions .btn { flex: 1; justify-content: center; }
@@ -1673,7 +1661,7 @@ output.sr-timer-num { position: absolute; right: 0; top: -18px; font-size: 0.75r
 
 /* Multiple choice */
 .mp-mc-grid    { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; width: 100%; }
-.mp-mc-btn     { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.875rem 1rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; cursor: pointer; transition: background 0.15s, border-color 0.15s; line-height: 1.4; width: 100%; }
+.mp-mc-btn     { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.875rem 1rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); text-align: left; cursor: pointer; transition: background 0.15s, border-color 0.15s; line-height: 1.4; width: 100%; color: var(--text); }
 .mp-mc-btn:hover:not(:disabled) { border-color: var(--border-2); background: var(--surface3); }
 .mp-mc-btn:disabled { cursor: default; }
 .mp-mc-label   { font-weight: 700; font-size: 0.875rem; color: var(--accent); min-width: 1.1rem; flex-shrink: 0; padding-top: 0.05rem; }

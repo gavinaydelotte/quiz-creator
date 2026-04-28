@@ -440,7 +440,7 @@ function updateNavActive() {
   var hash  = location.hash || '#/';
   var base  = '#/' + (hash.replace(/^#\/?/, '').split('/')[0] || '');
 
-  document.querySelectorAll('.nav-link, .mobile-nav-link').forEach(function (a) {
+  document.querySelectorAll('.nav-link').forEach(function (a) {
     var href = a.getAttribute('href');
     /* exact match for home, prefix match for everything else */
     var active = href === '#/' ? hash === '#/' : href === base;
