@@ -4,7 +4,9 @@
       "PowerShell(Get-ChildItem \"C:\\\\Program Files\\\\nodejs\" -ErrorAction SilentlyContinue | Select-Object Name; Get-ChildItem \"$env:APPDATA\\\\npm\" -ErrorAction SilentlyContinue | Select-Object Name -First 5)",
       "WebFetch(domain:unsplash.com)",
       "WebSearch",
-      "WebFetch(domain:quizlet.com)"
+      "WebFetch(domain:quizlet.com)",
+      "Bash(git -C \"c:/Users/gaydelotte1/Documents/GitHub/quiz-creator\" log --oneline --all)",
+      "Bash(git -C \"c:/Users/gaydelotte1/Documents/GitHub/quiz-creator\" log --format=\"%h %ad %s\" --date=short)"
     ]
   }
 }
