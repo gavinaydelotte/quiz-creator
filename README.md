@@ -6,7 +6,7 @@ A flashcard and study tool with AI-powered set generation, multiple study modes,
 
 ## Features
 
-- **Create sets** manually with a live card editor, or generate them from any topic using OpenAI — supports plain text and PDF uploads
+- **Create sets** manually with a live card editor, or generate them from any topic using OpenAI — supports plain text and PDF uploads - Upload a file and the AI will parse through it in seconds, making slides for you based on the material
 - **Import from Quizlet** — paste tab-separated exports or upload a CSV; auto-detects the delimiter
 - **Share sets** via a self-contained link anyone can view and import without an account
 - **Study modes:** Flashcards (with text-to-speech), Test (multiple choice), Write (type the answer), and Spaced Review (SM-2 algorithm)
